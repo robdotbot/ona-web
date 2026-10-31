@@ -3,7 +3,7 @@
 #   web UI:     http://localhost:5173   (log in as admin / admin)
 #   REST API:   http://localhost:8080/api/v1/  (spec: /api/v1/openapi.yaml)
 #   legacy UI:  http://localhost:8080/
-name: ona-next
+name: ona-web
 
 x-db-env: &db-env
   ONA_DB_HOST: db

@@ -1,11 +1,11 @@
-# ona-next
+# ona-web
 
 A modern web interface for [OpenNetAdmin](https://github.com/opennetadmin/ona)
 (ONA), backed by a new JSON REST API that wraps ONA's own modules. The
 classic ONA interface keeps working alongside it on the same database.
 
 ```
-ona-next/
+ona-web/
 ├── api/                 ONA (upstream copy) + the REST API in api/rest
 ├── web/                 React + TypeScript single-page app
 └── docker-compose.yml   MariaDB, PHP 8.3/Apache (ONA + API), Vite dev server
