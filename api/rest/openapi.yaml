@@ -2150,7 +2150,7 @@ components:
               type: string
               enum: [bad_request, unauthorized, forbidden, csrf_failed, not_found, method_not_allowed,
                      conflict, unsupported_media_type, validation_failed, module_error, internal_error,
-                     not_installed, database_unavailable]
+                     not_implemented, not_installed, database_unavailable]
             message: { type: string }
             details: { type: object, additionalProperties: true }
 

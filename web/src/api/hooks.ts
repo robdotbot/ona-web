@@ -2,6 +2,27 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, setCsrfToken } from './client';
 import type {
+  AttributeTarget,
+  Block,
+  BlockDetail,
+  CustomAttribute,
+  CustomAttributeType,
+  DhcpEntry,
+  DhcpFailoverGroup,
+  DhcpOption,
+  DhcpPool,
+  DhcpScope,
+  DhcpServer,
+  DhcpServerDetail,
+  Domain,
+  Group,
+  Permission,
+  Plugin,
+  SysConfigEntry,
+  User,
+  Vlan,
+  VlanCampus,
+  VlanDetail,
   DeviceType,
   DnsRecord,
   Host,
@@ -72,7 +93,7 @@ export const useSubnetTypes = () =>
   useQuery({ queryKey: ['subnet-types'], queryFn: lookup<Ref & { shortName: string }>('/subnet-types'), staleTime: Infinity });
 export const useDeviceTypes = () =>
   useQuery({ queryKey: ['device-types'], queryFn: lookup<DeviceType>('/device-types'), staleTime: Infinity });
-export const useDomains = () => useQuery({ queryKey: ['domains'], queryFn: lookup<Ref>('/domains'), staleTime: 60_000 });
+export const useDomains = () => useQuery({ queryKey: ['domains'], queryFn: lookup<Domain>('/domains'), staleTime: 60_000 });
 export const useLocations = () =>
   useQuery({ queryKey: ['locations'], queryFn: lookup<Location>('/locations'), staleTime: 60_000 });
 
@@ -114,6 +135,8 @@ export interface SubnetInput {
   ip?: string;
   netmask?: string;
   typeId?: number;
+  /** 0 detaches the subnet from its VLAN. */
+  vlanId?: number;
 }
 
 export const useSubnets = (p: ListParams) => useList<Subnet>('subnets', p);
@@ -198,3 +221,134 @@ export const useSearch = (q: string) =>
   });
 
 export const quickSearch = (q: string) => api<SearchResult>('GET', '/search', { query: { q } });
+
+// ---- Shared CRUD helpers for the remaining resources ------------------------
+
+type Body = Record<string, unknown>;
+const all = <T,>(path: string) => () => api<{ data: T[] }>('GET', path).then((r) => r.data);
+const crud = <T,>(path: string) => ({
+  create: () => useWrite((b: Body) => api<T>('POST', path, { body: b })),
+  update: () => useWrite(({ id, ...b }: Body & { id: number | string }) => api<T>('PATCH', `${path}/${id}`, { body: b })),
+  remove: () => useWrite((id: number | string) => api<void>('DELETE', `${path}/${id}`)),
+});
+
+// ---- VLANs ----------------------------------------------------------------
+
+export const useVlanCampuses = (p: ListParams) => useList<VlanCampus>('vlan-campuses', p);
+export const useAllVlanCampuses = () =>
+  useQuery({ queryKey: ['vlan-campuses', 'all'], queryFn: () => api<ListResponse<VlanCampus>>('GET', '/vlan-campuses', { query: { perPage: 200 } }).then((r) => r.data) });
+const campuses = crud<VlanCampus>('/vlan-campuses');
+export const useCreateVlanCampus = campuses.create;
+export const useUpdateVlanCampus = campuses.update;
+export const useDeleteVlanCampus = campuses.remove;
+
+export const useVlans = (p: ListParams) => useList<Vlan>('vlans', p);
+export const useAllVlans = () =>
+  useQuery({ queryKey: ['vlans', 'all'], queryFn: () => api<ListResponse<Vlan>>('GET', '/vlans', { query: { perPage: 200 } }).then((r) => r.data) });
+export const useVlan = (id?: number) => useDetail<VlanDetail>('vlans', id);
+const vlans = crud<VlanDetail>('/vlans');
+export const useCreateVlan = vlans.create;
+export const useUpdateVlan = vlans.update;
+export const useDeleteVlan = vlans.remove;
+
+// ---- Blocks ---------------------------------------------------------------
+
+export const useBlocks = (p: ListParams) => useList<Block>('blocks', p);
+export const useBlock = (id?: number) => useDetail<BlockDetail>('blocks', id);
+const blocks = crud<BlockDetail>('/blocks');
+export const useCreateBlock = blocks.create;
+export const useUpdateBlock = blocks.update;
+export const useDeleteBlock = blocks.remove;
+
+// ---- DHCP -----------------------------------------------------------------
+
+export const useDhcpServers = () => useQuery({ queryKey: ['dhcp-servers', 'all'], queryFn: all<DhcpServer>('/dhcp-servers') });
+export const useDhcpServer = (id?: number) => useDetail<DhcpServerDetail>('dhcp-servers', id);
+export const useAddDhcpServerSubnet = () =>
+  useWrite((b: { hostId: number; subnetId: number }) => api<DhcpServerDetail>('POST', '/dhcp-servers', { body: b }));
+export const useRemoveDhcpServerSubnet = () =>
+  useWrite(({ hostId, subnetId }: { hostId: number; subnetId: number }) => api<void>('DELETE', `/dhcp-servers/${hostId}/subnets/${subnetId}`));
+
+export const useDhcpFailoverGroups = () =>
+  useQuery({ queryKey: ['dhcp-failover-groups', 'all'], queryFn: all<DhcpFailoverGroup>('/dhcp-failover-groups') });
+const groupsCrud = crud<DhcpFailoverGroup>('/dhcp-failover-groups');
+export const useCreateDhcpFailoverGroup = groupsCrud.create;
+export const useUpdateDhcpFailoverGroup = groupsCrud.update;
+export const useDeleteDhcpFailoverGroup = groupsCrud.remove;
+
+export const useDhcpPools = (p: ListParams, enabled = true) => useList<DhcpPool>('dhcp-pools', p, enabled);
+const pools = crud<DhcpPool>('/dhcp-pools');
+export const useCreateDhcpPool = pools.create;
+export const useUpdateDhcpPool = pools.update;
+export const useDeleteDhcpPool = pools.remove;
+
+export const useDhcpOptions = () =>
+  useQuery({ queryKey: ['dhcp-options'], queryFn: all<DhcpOption>('/dhcp-options'), staleTime: Infinity });
+
+const scopeQuery = (scope: DhcpScope) =>
+  'global' in scope ? { global: 'true' } : (scope as Record<string, number>);
+export const useDhcpEntries = (scope: DhcpScope, enabled = true) =>
+  useQuery({
+    queryKey: ['dhcp-entries', 'list', scope],
+    queryFn: () => api<{ data: DhcpEntry[] }>('GET', '/dhcp-entries', { query: scopeQuery(scope) }).then((r) => r.data),
+    enabled,
+  });
+const entries = crud<DhcpEntry>('/dhcp-entries');
+export const useCreateDhcpEntry = entries.create;
+export const useUpdateDhcpEntry = entries.update;
+export const useDeleteDhcpEntry = entries.remove;
+
+// ---- Custom attributes ----------------------------------------------------
+
+export const useCustomAttributeTypes = () =>
+  useQuery({ queryKey: ['custom-attribute-types', 'all'], queryFn: all<CustomAttributeType>('/custom-attribute-types') });
+const caTypes = crud<CustomAttributeType>('/custom-attribute-types');
+export const useCreateCustomAttributeType = caTypes.create;
+export const useUpdateCustomAttributeType = caTypes.update;
+export const useDeleteCustomAttributeType = caTypes.remove;
+
+export const useCustomAttributes = (p: ListParams | AttributeTarget, enabled = true) =>
+  useList<CustomAttribute>('custom-attributes', { perPage: 200, ...(p as ListParams) }, enabled);
+const attrs = crud<CustomAttribute>('/custom-attributes');
+export const useCreateCustomAttribute = attrs.create;
+export const useUpdateCustomAttribute = attrs.update;
+export const useDeleteCustomAttribute = attrs.remove;
+
+// ---- Locations & domains --------------------------------------------------
+
+const locations = crud<Location>('/locations');
+export const useCreateLocation = locations.create;
+export const useUpdateLocation = locations.update;
+export const useDeleteLocation = locations.remove;
+const domains = crud<Domain>('/domains');
+export const useCreateDomain = domains.create;
+export const useUpdateDomain = domains.update;
+export const useDeleteDomain = domains.remove;
+
+// ---- Admin ----------------------------------------------------------------
+
+export const useUsers = (enabled = true) => useQuery({ queryKey: ['users', 'all'], queryFn: all<User>('/users'), enabled });
+const users = crud<User>('/users');
+export const useCreateUser = users.create;
+export const useUpdateUser = users.update;
+export const useDeleteUser = users.remove;
+
+export const useGroups = (enabled = true) => useQuery({ queryKey: ['groups', 'all'], queryFn: all<Group>('/groups'), enabled });
+export const useGroup = (id?: number) => useDetail<Group>('groups', id);
+const groups = crud<Group>('/groups');
+export const useCreateGroup = groups.create;
+export const useUpdateGroup = groups.update;
+export const useDeleteGroup = groups.remove;
+
+export const usePermissions = (enabled = true) =>
+  useQuery({ queryKey: ['permissions'], queryFn: all<Permission>('/permissions'), enabled, staleTime: Infinity });
+
+export const useSysConfig = (enabled = true) => useQuery({ queryKey: ['sys-config', 'all'], queryFn: all<SysConfigEntry>('/sys-config'), enabled });
+const sysConfig = crud<SysConfigEntry>('/sys-config');
+export const useCreateSysConfig = sysConfig.create;
+export const useUpdateSysConfig = sysConfig.update;
+export const useDeleteSysConfig = sysConfig.remove;
+
+export const usePlugins = (enabled = true) => useQuery({ queryKey: ['plugins', 'all'], queryFn: all<Plugin>('/plugins'), enabled });
+export const useSetPluginEnabled = () =>
+  useWrite(({ name, enabled }: { name: string; enabled: boolean }) => api<Plugin>('PATCH', `/plugins/${encodeURIComponent(name)}`, { body: { enabled } }));

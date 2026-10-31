@@ -9,9 +9,17 @@ import { HostsPage } from './pages/HostsPage';
 import { HostDetailPage } from './pages/HostDetailPage';
 import { DnsRecordsPage } from './pages/DnsRecordsPage';
 import { SearchPage } from './pages/SearchPage';
-import { ComingSoonPage } from './pages/ComingSoonPage';
 import { NotFoundPage } from './pages/NotFoundPage';
-import { PLANNED_SECTIONS } from './components/nav';
+import { VlansPage } from './pages/VlansPage';
+import { VlanDetailPage } from './pages/VlanDetailPage';
+import { BlocksPage } from './pages/BlocksPage';
+import { BlockDetailPage } from './pages/BlockDetailPage';
+import { DhcpPage } from './pages/DhcpPage';
+import { DhcpServerPage } from './pages/DhcpServerPage';
+import { CustomAttributesPage } from './pages/CustomAttributesPage';
+import { LocationsPage } from './pages/LocationsPage';
+import { DomainsPage } from './pages/DomainsPage';
+import { AdminPage } from './pages/AdminPage';
 
 export function App() {
   const session = useSession();
@@ -35,9 +43,16 @@ export function App() {
         <Route path="/hosts/:id" element={<HostDetailPage />} />
         <Route path="/dns" element={<DnsRecordsPage />} />
         <Route path="/search" element={<SearchPage />} />
-        {PLANNED_SECTIONS.map((s) => (
-          <Route key={s.path} path={s.path} element={<ComingSoonPage section={s} />} />
-        ))}
+        <Route path="/vlans" element={<VlansPage />} />
+        <Route path="/vlans/:id" element={<VlanDetailPage />} />
+        <Route path="/blocks" element={<BlocksPage />} />
+        <Route path="/blocks/:id" element={<BlockDetailPage />} />
+        <Route path="/dhcp" element={<DhcpPage />} />
+        <Route path="/dhcp/servers/:id" element={<DhcpServerPage />} />
+        <Route path="/custom-attributes" element={<CustomAttributesPage />} />
+        <Route path="/locations" element={<LocationsPage />} />
+        <Route path="/domains" element={<DomainsPage />} />
+        <Route path="/admin" element={<AdminPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </AppLayout>

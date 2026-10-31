@@ -2,12 +2,13 @@ import { Button, Group, Select, Stack, TextInput } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { modals } from '@mantine/modals';
 import { useNavigate } from 'react-router-dom';
-import { useCreateSubnet, useSubnetTypes, useUpdateSubnet, type SubnetInput } from '../api/hooks';
+import { useAllVlans, useCreateSubnet, useSubnetTypes, useUpdateSubnet, type SubnetInput } from '../api/hooks';
 import type { SubnetDetail } from '../api/types';
 import { applyServerErrors, notifySuccess } from './feedback';
 
 function SubnetForm({ subnet }: { subnet?: SubnetDetail }) {
   const types = useSubnetTypes();
+  const vlans = useAllVlans();
   const create = useCreateSubnet();
   const update = useUpdateSubnet(subnet?.id ?? 0);
   const navigate = useNavigate();
@@ -17,6 +18,7 @@ function SubnetForm({ subnet }: { subnet?: SubnetDetail }) {
       ip: subnet?.ip ?? '',
       netmask: subnet ? String(subnet.cidr) : '24',
       typeId: subnet?.type ? String(subnet.type.id) : '',
+      vlanId: subnet?.vlan ? String(subnet.vlan.id) : '',
     },
     validate: {
       name: (v) => (v.trim() ? null : 'Required'),
@@ -28,6 +30,7 @@ function SubnetForm({ subnet }: { subnet?: SubnetDetail }) {
 
   const submit = form.onSubmit(async (v) => {
     const body: SubnetInput = { name: v.name.trim(), ip: v.ip.trim(), netmask: v.netmask.trim(), typeId: Number(v.typeId) };
+    const vlanId = v.vlanId ? Number(v.vlanId) : 0;
     try {
       if (subnet) {
         // Only send what changed; ONA refuses some no-op changes.
@@ -36,16 +39,17 @@ function SubnetForm({ subnet }: { subnet?: SubnetDetail }) {
         if (body.ip !== subnet.ip) changed.ip = body.ip;
         if (body.netmask !== String(subnet.cidr) && body.netmask !== subnet.netmask) changed.netmask = body.netmask;
         if (body.typeId !== subnet.type?.id) changed.typeId = body.typeId;
+        if (vlanId !== (subnet.vlan?.id ?? 0)) changed.vlanId = vlanId;
         if (Object.keys(changed).length) await update.mutateAsync(changed);
         notifySuccess('Subnet saved');
       } else {
-        const created = await create.mutateAsync(body);
+        const created = await create.mutateAsync(vlanId ? { ...body, vlanId } : body);
         notifySuccess(`Subnet ${created.name} added`);
         navigate(`/subnets/${created.id}`);
       }
       modals.closeAll();
     } catch (err) {
-      applyServerErrors(form, err, { typeId: 'typeId' });
+      applyServerErrors(form, err, { typeId: 'typeId', vlanId: 'vlanId' });
     }
   });
 
@@ -63,6 +67,14 @@ function SubnetForm({ subnet }: { subnet?: SubnetDetail }) {
           data={(types.data ?? []).map((t) => ({ value: String(t.id), label: t.name }))}
           searchable
           {...form.getInputProps('typeId')}
+        />
+        <Select
+          label="VLAN"
+          placeholder="None"
+          clearable
+          searchable
+          data={(vlans.data ?? []).map((x) => ({ value: String(x.id), label: `${x.number} ${x.name} (${x.campus.name})` }))}
+          {...form.getInputProps('vlanId')}
         />
         <Group justify="flex-end">
           <Button variant="default" onClick={() => modals.closeAll()}>Cancel</Button>

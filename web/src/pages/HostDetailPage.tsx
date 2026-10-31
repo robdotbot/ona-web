@@ -3,7 +3,7 @@ import { Alert, Anchor, Button, Card, Center, Group, Loader, SimpleGrid, Stack, 
 import { createColumnHelper, type ColumnDef } from '@tanstack/react-table';
 import { IconPencil, IconPlus, IconTrash } from '@tabler/icons-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useCan, useDeleteDnsRecord, useDeleteHost, useDeleteInterface, useHost } from '../api/hooks';
+import { useCan, useDeleteDnsRecord, useDeleteHost, useDeleteInterface, useDhcpServers, useHost } from '../api/hooks';
 import { errorMessage } from '../api/client';
 import type { DnsRecord, Interface } from '../api/types';
 import { DataTable } from '../components/DataTable';
@@ -13,6 +13,7 @@ import { openInterfaceForm } from '../components/InterfaceForm';
 import { openDnsRecordForm } from '../components/DnsRecordForm';
 import { dnsColumns, interfaceColumns, rowActions } from '../components/columns';
 import { confirmDelete, notifySuccess } from '../components/feedback';
+import { CustomAttributesPanel, DhcpOptionsPanel } from '../components/panels';
 import { NotFoundPage } from './NotFoundPage';
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -27,6 +28,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 export function HostDetailPage() {
   const id = Number(useParams().id);
   const host = useHost(id);
+  const dhcpServers = useDhcpServers();
   const navigate = useNavigate();
   const delHost = useDeleteHost();
   const delIface = useDeleteInterface();
@@ -150,6 +152,13 @@ export function HostDetailPage() {
         The primary interface and primary DNS record can't be deleted here; delete the host instead. See all records in{' '}
         <Anchor component={Link} to={`/dns?hostId=${h.id}`} size="xs">DNS records</Anchor>.
       </Text>
+      <DhcpOptionsPanel scope={{ hostId: h.id }} />
+      <CustomAttributesPanel target={{ hostId: h.id }} />
+      {dhcpServers.data?.some((d) => d.id === h.id) && (
+        <Text size="xs" c="dimmed">
+          This host is a DHCP server: see <Anchor component={Link} to={`/dhcp/servers/${h.id}`} size="xs">the subnets it serves</Anchor>.
+        </Text>
+      )}
     </Stack>
   );
 }
