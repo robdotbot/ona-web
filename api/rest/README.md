@@ -57,7 +57,8 @@ records ONA uses the `host_*` permissions, not the `dns_record_*` ones).
 
 These carry the intent of the upstream fixes (window-name file inclusion,
 reflected XSS in `html_desktop.inc.php`, `eval` in `dcm.php`, anonymous
-`dcm.pl` login, missing `auth()` in DCM write modules) into the API:
+`dcm.pl` login, missing `auth()` in DCM write modules) into the API. The
+fixes themselves are also applied to the legacy code; see `../UPSTREAM.md`.
 
 - **No client-controlled includes or calls.** Static route table; module
   names are literals in our code; IDs are integers.

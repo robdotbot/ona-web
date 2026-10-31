@@ -48,8 +48,9 @@ To start over with an empty database: `docker compose down -v`.
                                              └─ /*         classic ONA UI
 ```
 
-**API (`api/`).** `api/` is an unmodified export of upstream ONA `master`
-(see `api/UPSTREAM.md`) plus `api/rest/` and the single front controller
+**API (`api/`).** `api/` is an export of upstream ONA `master` with
+robdotbot's pending upstream security fixes applied (see `api/UPSTREAM.md`;
+note that `dcm.pl` now needs `-l`/`-p` credentials), plus `api/rest/` and the single front controller
 `api/www/api/v1/index.php`. The API includes ONA's own `config.inc.php`, so it
 shares ONA's DB connection, `sys_config`, users, groups and session store.
 Reads use ONA's `functions_db` helpers; every write calls the matching DCM
