@@ -35,7 +35,8 @@ Behaviour change from #208: `dcm.pl` without `-l`/`-p` no longer works
 unless an admin adds the `dcm_allow_anonymous` sys_config option with value
 `1` (Admin > System config).
 
-Still present upstream and not fixed here: `startSession()` in
-`www/include/functions_general.inc.php` treats the `console-module-interface`
-User-Agent plus `options=unix_username=…` as a logged-in user (with no
-permissions). The REST API strips both before ONA sees the request.
+Not yet proposed upstream, fixed only here:
+
+| Fix | Files |
+| --- | --- |
+| `startSession()` no longer logs in the `unix_username` from `?options=` when the User-Agent is `console-module-interface` (both are client supplied). It still skips the session cookie for `dcm.pl`; `dcm.php` authenticates those requests itself. | `www/include/functions_general.inc.php` |

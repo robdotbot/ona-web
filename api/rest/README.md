@@ -69,9 +69,10 @@ fixes themselves are also applied to the legacy code; see `../UPSTREAM.md`.
   as authenticated only if the session went through `POST /auth/login` and
   the user recorded then is still the ONA session user. A guest session
   from the legacy UI does not authenticate API calls.
-- **dcm.pl impersonation blocked.** ONA's `startSession()` treats the
-  `console-module-interface` User-Agent plus `options=unix_username=…` as
-  logged in; the bootstrap strips both before ONA sees the request.
+- **dcm.pl impersonation blocked.** Upstream ONA's `startSession()` treats
+  the `console-module-interface` User-Agent plus `options=unix_username=…` as
+  logged in (fixed in this repo's legacy copy too); the bootstrap strips both
+  before ONA sees the request.
 - **Permission checks on every write**, both in the API and again inside
   the module.
 - **Login hardening.** Uniform "Invalid username or password" message with a

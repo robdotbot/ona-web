@@ -23,9 +23,10 @@ use OnaRest\Router;
 ob_start();
 Response::installErrorHandlers();
 
-// ONA's startSession() pretends anyone sending dcm.pl's User-Agent is logged
-// in as the unix_username in ?options= (upstream PR #208). The API never
-// serves dcm.pl, so strip both before ONA sees them.
+// Upstream ONA's startSession() logs anyone sending dcm.pl's User-Agent in as
+// the unix_username in ?options= (fixed in this repo's copy, see
+// ../UPSTREAM.md), and skips the session for that User-Agent. The API never
+// serves dcm.pl, so strip both before ONA sees them, whichever ONA is in use.
 if (stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'console-module-interface') !== false) {
     $_SERVER['HTTP_USER_AGENT'] = 'ona-rest-client';
 }

@@ -1238,13 +1238,9 @@ function startSession() {
     $secure=false;
 
     // If the command line agent, dcm.pl, is making the request, don't really start a session.
+    // Don't log anyone in here: the User-Agent and the unix_username option are
+    // client supplied. dcm.php authenticates dcm.pl requests itself.
     if (preg_match('/console-module-interface/', $_SERVER['HTTP_USER_AGENT'])) {
-
-        // Pretend to log them in
-        if (preg_match('/unix_username=([^&]+?)(&|$)/', $_REQUEST['options'], $matches)) {
-            $_SESSION['ona']['auth']['user']['username'] = $matches[1];
-        }
-
         return(1);
     }
 
