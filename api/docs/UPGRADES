@@ -1,0 +1,26 @@
+UPGRADES
+========
+
+You can access the online documentation for upgrades at https://github.com/opennetadmin/ona/wiki/Upgrades
+
+Upgrades should automatically be detected and performed.  As usual MAKE A BACKUP FIRST!
+Its likely that I screwed something up and your data will be ground into a fine dust.
+Currently the autoupgrade of database elements only works when using a MySQL database.
+
+Quick steps for upgrade:
+
+  * edit /opt/ona/www/local/config/database_settings.inc.php
+    * edit the ```db_type``` setting and change it to 'mysqli' if it is not already.
+  * Git pull
+    * cd to /opt/ona or wherever you've installed it
+    * git pull
+  * (OR) Download new tar file  
+    * Download the latest tar archive from https://github.com/opennetadmin/ona/archive/master.tar.gz
+    * `tar --strip-components=1 -C /opt/ona -zxvf ona-master.tar.gz`  Or change -C /opt/ona to wherever your installed it to on your system
+  * `chown www-data /opt/ona/www/local/config` (or whatever your web server user is)
+  * Point your browser to http://localhost/ona/?runinstaller=y OR use cli installer `php /opt/ona/install/installcli.php`
+    * If you do not run the upgrade installer you may run into issues.  You must execute the link above after installing the tar archive.
+  * After the license info you will be informed that an upgrade will occur.  Select OK to the upgrade (after your backups n stuff)
+  * If there is any new database updates they should be applied and you should see a note about the upgrade_index being updated as well as version numbers.
+  * Once in, should see the latest version number displayed on the dashboard.
+

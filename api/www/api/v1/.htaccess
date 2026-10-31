@@ -1,0 +1,7 @@
+# Route every request under /api/v1/ to the front controller.
+# (The bundled Docker image sets the same thing in its vhost config.)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L,QSA]
+</IfModule>

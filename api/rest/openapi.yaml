@@ -1,0 +1,877 @@
+openapi: 3.1.0
+info:
+  title: OpenNetAdmin REST API
+  version: 1.0.0
+  description: |
+    JSON API over OpenNetAdmin (ONA). Every write runs the matching ONA DCM
+    module through `run_module()`, so ONA's own validation, permission checks
+    (`auth()`) and schema apply.
+
+    **Authentication.** `POST /auth/login` with an ONA username and password
+    starts a session (cookie `ONA_SESSION_ID`). Every other endpoint except
+    `/health` and this spec requires that session. There is no guest
+    auto-login.
+
+    **CSRF.** Every `POST`, `PATCH` and `DELETE` (except login) must send the
+    session's token, from the login response or `GET /auth/session`, in an
+    `X-CSRF-Token` header. Request bodies must be `application/json`.
+
+    **Errors** always look like
+    `{"error": {"code": "...", "message": "...", "details": {...}}}`.
+
+    **Lists** take `page` (from 1), `perPage` (1-200) and `sort`
+    (a field name, prefix `-` for descending) and return
+    `{"data": [...], "meta": {"page", "perPage", "total", "totalPages"}}`.
+servers:
+  - url: /api/v1
+security:
+  - session: []
+tags:
+  - name: auth
+  - name: subnets
+  - name: hosts
+  - name: interfaces
+  - name: dns
+  - name: search
+  - name: lookups
+
+paths:
+  /health:
+    get:
+      tags: [auth]
+      summary: Liveness check (no auth)
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  version: { type: string, example: v19.0.3 }
+
+  /openapi.yaml:
+    get:
+      tags: [auth]
+      summary: This specification (no auth)
+      security: []
+      responses:
+        '200':
+          description: OpenAPI 3.1 document
+          content:
+            application/yaml: {}
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Log in with an ONA user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, example: admin }
+                password: { type: string, format: password, example: admin }
+      responses:
+        '200':
+          description: Logged in; sets the session cookie
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '415': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: End the session
+      description: Requires `X-CSRF-Token` when a session is active.
+      security: []
+      responses:
+        '204': { description: Logged out }
+
+  /auth/session:
+    get:
+      tags: [auth]
+      summary: Current user, permissions and CSRF token
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /search:
+    get:
+      tags: [search]
+      summary: Global search across hosts, subnets, interfaces and DNS records
+      description: |
+        An IP address finds the interface, its host, the containing subnet and
+        records on that address. A MAC address finds interfaces and hosts.
+        Anything else is matched against host, subnet and record names.
+        Each group returns at most 10 items.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /subnet-types:
+    get:
+      tags: [lookups]
+      summary: Subnet types
+      responses:
+        '200': { $ref: '#/components/responses/LookupList' }
+  /device-types:
+    get:
+      tags: [lookups]
+      summary: Device types (manufacturer, model and role)
+      responses:
+        '200': { $ref: '#/components/responses/LookupList' }
+  /domains:
+    get:
+      tags: [lookups]
+      summary: DNS domains
+      responses:
+        '200': { $ref: '#/components/responses/LookupList' }
+  /locations:
+    get:
+      tags: [lookups]
+      summary: Locations
+      responses:
+        '200': { $ref: '#/components/responses/LookupList' }
+
+  /subnets:
+    get:
+      tags: [subnets]
+      summary: List subnets with IP usage
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+        - name: sort
+          in: query
+          schema: { type: string, enum: [ip, -ip, name, -name, type, -type], default: ip }
+        - name: q
+          in: query
+          description: Name substring, or an IP address to find the subnet containing it
+          schema: { type: string }
+        - { name: typeId, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListMeta'
+                  - properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Subnet' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [subnets]
+      summary: Add a subnet (module subnet_add, permission subnet_add)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, ip, netmask, typeId]
+              properties:
+                name: { type: string, description: 'Stored upper case, spaces become -', example: LAN-1 }
+                ip: { type: string, example: 10.1.0.0 }
+                netmask: { type: string, description: 'Prefix length (24 or /24) or dotted mask', example: '24' }
+                typeId: { type: integer, example: 13 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubnetDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /subnets/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [subnets]
+      summary: Get a subnet
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubnetDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [subnets]
+      summary: Change a subnet (module subnet_modify, permission subnet_modify)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string }
+                ip: { type: string }
+                netmask: { type: string }
+                typeId: { type: integer }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubnetDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [subnets]
+      summary: Delete a subnet (module subnet_del, permission subnet_del)
+      description: |
+        Follows ONA's rules: also removes DHCP pools and server assignments on
+        the subnet, its interfaces, and hosts whose only interface is on it.
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /subnets/{id}/next-ip:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [subnets]
+      summary: First unused address on the subnet (module subnet_nextip)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ip: { type: string, example: 10.1.0.1 }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /hosts:
+    get:
+      tags: [hosts]
+      summary: List hosts
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+        - name: sort
+          in: query
+          schema: { type: string, enum: [name, -name, ip, -ip, id, -id], default: name }
+        - name: q
+          in: query
+          description: Host name (optionally with domain), notes, IP address or MAC address
+          schema: { type: string }
+        - { name: subnetId, in: query, schema: { type: integer } }
+        - { name: domainId, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListMeta'
+                  - properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Host' } }
+    post:
+      tags: [hosts]
+      summary: Add a host with its first interface (module host_add, permission host_add)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, deviceTypeId, ip]
+              properties:
+                name: { type: string, description: 'Host name or FQDN; the default domain is used when no domain is given', example: web01.example.com }
+                deviceTypeId: { type: integer }
+                ip: { type: string, description: Must be inside an existing subnet }
+                notes: { type: string }
+                locationId: { type: integer }
+                mac: { type: string }
+                interfaceName: { type: string, example: eth0 }
+                interfaceDescription: { type: string }
+                addPtr: { type: boolean, default: false, description: Also add a PTR record (needs a matching in-addr.arpa domain) }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /hosts/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [hosts]
+      summary: Get a host with its interfaces and DNS records
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [hosts]
+      summary: Change a host (modules host_modify and dns_record_modify, permission host_modify)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string, description: Renames the host's primary DNS record }
+                deviceTypeId: { type: integer }
+                notes: { type: string }
+                locationId: { type: integer, description: 0 clears the location }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [hosts]
+      summary: Delete a host and its interfaces and records (module host_del, permission host_del)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /interfaces:
+    get:
+      tags: [interfaces]
+      summary: List interfaces (IP addresses)
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - name: perPage
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [ip, -ip, name, -name, host, -host], default: ip }
+        - { name: hostId, in: query, schema: { type: integer } }
+        - { name: subnetId, in: query, schema: { type: integer } }
+        - { name: q, in: query, description: 'IP, MAC, or name/description/host substring', schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListMeta'
+                  - properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Interface' } }
+    post:
+      tags: [interfaces]
+      summary: Add an interface to a host (module interface_add, permission host_add)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hostId, ip]
+              properties:
+                hostId: { type: integer }
+                ip: { type: string }
+                mac: { type: string }
+                name: { type: string }
+                description: { type: string }
+                addPtr: { type: boolean, default: false }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Interface' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /interfaces/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [interfaces]
+      summary: Get an interface
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Interface' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [interfaces]
+      summary: Change an interface (module interface_modify, permission interface_modify)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                ip: { type: string }
+                mac: { type: string }
+                name: { type: string }
+                description: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Interface' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [interfaces]
+      summary: Delete an interface (module interface_del, permissions interface_del and host_del)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /dns-records:
+    get:
+      tags: [dns]
+      summary: List DNS records
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+        - name: sort
+          in: query
+          schema: { type: string, enum: [name, -name, type, -type, domain, -domain, id, -id], default: name }
+        - { name: q, in: query, description: 'Name, TXT value or notes substring, or an IP address', schema: { type: string } }
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/DnsType' }
+        - { name: domainId, in: query, schema: { type: integer } }
+        - { name: hostId, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListMeta'
+                  - properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/DnsRecord' } }
+    post:
+      tags: [dns]
+      summary: Add a DNS record (module dns_record_add, permission host_add)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - type: object
+                  required: [name, type]
+                  properties:
+                    name: { type: string, description: FQDN; the default domain is used when no domain is given, example: www.example.com }
+                    type: { $ref: '#/components/schemas/DnsType' }
+                    addPtr: { type: boolean, default: false, description: For A/AAAA records }
+                - $ref: '#/components/schemas/DnsRecordFields'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DnsRecord' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /dns-records/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [dns]
+      summary: Get a DNS record
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DnsRecord' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [dns]
+      summary: Change a DNS record (module dns_record_modify, permission host_modify)
+      description: The record type cannot be changed; delete and re-add instead.
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - type: object
+                  properties:
+                    name: { type: string }
+                - $ref: '#/components/schemas/DnsRecordFields'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DnsRecord' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [dns]
+      summary: Delete a DNS record (module dns_record_del, permission host_del)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: ONA_SESSION_ID
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+    page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    perPage:
+      name: perPage
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 25 }
+    csrf:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema: { type: string }
+
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Not logged in (code `unauthorized`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Missing ONA permission (code `forbidden`, `details.permission`) or bad CSRF token (code `csrf_failed`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: No such record (code `not_found`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: ONA refused because the change clashes with existing data (code `conflict`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationFailed:
+      description: |
+        Invalid input (code `validation_failed`, `details.fields`) or the ONA
+        module refused the change (code `module_error`, `details.output`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    LookupList:
+      description: OK
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer }
+                    name: { type: string }
+                  additionalProperties: true
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [bad_request, unauthorized, forbidden, csrf_failed, not_found, method_not_allowed,
+                     conflict, unsupported_media_type, validation_failed, module_error, internal_error,
+                     not_implemented, not_installed, database_unavailable]
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+
+    ListMeta:
+      type: object
+      properties:
+        meta:
+          type: object
+          properties:
+            page: { type: integer }
+            perPage: { type: integer }
+            total: { type: integer }
+            totalPages: { type: integer }
+
+    Session:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            username: { type: string }
+            groups: { type: array, items: { type: string } }
+        permissions:
+          type: array
+          items: { type: string }
+          example: [host_add, host_del, host_modify, subnet_add]
+        csrfToken: { type: string }
+
+    Ref:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+
+    Subnet:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, example: LAN-1 }
+        ip: { type: string, example: 10.1.0.0 }
+        cidr: { type: integer, example: 24 }
+        netmask: { type: string, example: 255.255.255.0 }
+        network: { type: string, example: 10.1.0.0/24 }
+        ipVersion: { type: integer, enum: [4, 6] }
+        type: { oneOf: [ { $ref: '#/components/schemas/Ref' }, { type: 'null' } ] }
+        usage:
+          type: object
+          description: Addresses used by interfaces and DHCP pools, as computed by ONA's get_subnet_usage()
+          properties:
+            used: { type: integer }
+            total: { type: string, description: Usable addresses (a string because IPv6 sizes overflow integers) }
+            percent: { type: integer }
+
+    SubnetDetail:
+      allOf:
+        - $ref: '#/components/schemas/Subnet'
+        - type: object
+          properties:
+            vlan:
+              oneOf:
+                - type: 'null'
+                - type: object
+                  properties:
+                    id: { type: integer }
+                    name: { type: string }
+                    number: { type: integer }
+                    campus: { type: string }
+            firstIp: { type: string }
+            lastIp: { type: string }
+            interfaceCount: { type: integer }
+            hostCount: { type: integer }
+
+    Host:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, example: web01 }
+        fqdn: { type: string, example: web01.example.com }
+        domain: { $ref: '#/components/schemas/Ref' }
+        primaryIp: { type: [string, 'null'] }
+        primaryInterfaceId: { type: [integer, 'null'] }
+        interfaceCount: { type: integer }
+        notes: { type: string }
+        deviceType:
+          oneOf:
+            - type: 'null'
+            - type: object
+              properties:
+                id: { type: integer }
+                name: { type: string, example: Cisco 2821 (router) }
+                manufacturer: { type: string }
+                model: { type: string }
+                role: { type: string }
+        location:
+          oneOf:
+            - type: 'null'
+            - type: object
+              properties:
+                id: { type: integer }
+                reference: { type: string }
+                name: { type: string }
+                city: { type: string }
+
+    HostDetail:
+      allOf:
+        - $ref: '#/components/schemas/Host'
+        - type: object
+          properties:
+            primaryDnsId: { type: integer }
+            interfaces: { type: array, items: { $ref: '#/components/schemas/Interface' } }
+            dnsRecords: { type: array, items: { $ref: '#/components/schemas/DnsRecord' } }
+
+    Interface:
+      type: object
+      properties:
+        id: { type: integer }
+        ip: { type: string }
+        ipVersion: { type: integer, enum: [4, 6] }
+        mac: { type: [string, 'null'], example: '00:11:22:33:44:55' }
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        lastResponse: { type: [string, 'null'] }
+        natInterfaceId: { type: [integer, 'null'] }
+        host:
+          oneOf:
+            - type: 'null'
+            - type: object
+              properties:
+                id: { type: integer }
+                fqdn: { type: string }
+        subnet:
+          oneOf:
+            - type: 'null'
+            - type: object
+              properties:
+                id: { type: integer }
+                name: { type: string }
+                network: { type: string }
+
+    DnsType:
+      type: string
+      enum: [A, AAAA, CNAME, MX, NS, PTR, SRV, TXT]
+
+    DnsRecordFields:
+      type: object
+      properties:
+        ip: { type: string, description: A/AAAA/PTR address (must belong to an existing interface) }
+        pointsTo: { type: string, description: Target FQDN for CNAME, MX, NS, SRV }
+        ttl: { type: integer, description: 0 uses the domain default }
+        notes: { type: string }
+        mxPreference: { type: integer }
+        txt: { type: string }
+        srvPriority: { type: integer }
+        srvWeight: { type: integer }
+        srvPort: { type: integer }
+
+    DnsRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        type: { $ref: '#/components/schemas/DnsType' }
+        name: { type: string }
+        fqdn: { type: string }
+        domain: { $ref: '#/components/schemas/Ref' }
+        ttl: { type: integer }
+        ip: { type: [string, 'null'] }
+        interfaceId: { type: [integer, 'null'] }
+        hostId: { type: [integer, 'null'] }
+        pointsTo:
+          oneOf:
+            - type: 'null'
+            - type: object
+              properties:
+                id: { type: integer }
+                fqdn: { type: string }
+        notes: { type: string }
+        enabled: { type: boolean }
+        mxPreference: { type: [integer, 'null'] }
+        txt: { type: [string, 'null'] }
+        srv:
+          oneOf:
+            - type: 'null'
+            - type: object
+              properties:
+                priority: { type: integer }
+                weight: { type: integer }
+                port: { type: integer }
+
+    SearchResult:
+      type: object
+      properties:
+        query: { type: string }
+        bestMatch:
+          oneOf:
+            - type: 'null'
+            - type: object
+              properties:
+                type: { type: string, enum: [host, subnet] }
+                id: { type: integer }
+        hosts: { type: array, items: { $ref: '#/components/schemas/Host' } }
+        subnets: { type: array, items: { $ref: '#/components/schemas/Subnet' } }
+        interfaces: { type: array, items: { $ref: '#/components/schemas/Interface' } }
+        dnsRecords: { type: array, items: { $ref: '#/components/schemas/DnsRecord' } }

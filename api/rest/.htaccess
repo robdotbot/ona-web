@@ -1,0 +1,3 @@
+# This folder is outside the web root in the default layout; refuse access in
+# case someone points a document root at the ONA install folder.
+Require all denied

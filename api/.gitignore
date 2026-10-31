@@ -1,0 +1,40 @@
+# dont process the run_install script
+run_install
+
+# Local state (DB settings written by the installer, plugins, scans).
+# Re-include the few placeholder files upstream tracks.
+www/local/*
+!www/local/config/
+www/local/config/*
+!www/local/config/motd.txt.example
+!www/local/plugins/
+www/local/plugins/*
+!www/local/plugins/README
+!www/local/nmap_scans/
+www/local/nmap_scans/*
+!www/local/nmap_scans/subnets/
+www/local/nmap_scans/subnets/*
+!www/local/nmap_scans/subnets/nmap.xsl
+www/.htaccess
+
+# Set up empty dirs
+bin/*
+!bin/README
+etc/*
+!etc/README
+sql/*
+!sql/EXAMPLE.sql.disable
+!sql/list_all_hosts.sql
+www/*.htm
+
+cfg_archive_local
+
+spool
+
+*.log
+
+.vagrant
+.DS_Store
+
+# ignore vim swap files
+*.swp

@@ -1,0 +1,66 @@
+# Development stack: MariaDB, ONA (legacy UI + REST API) and the React dev server.
+#   docker compose up
+#   web UI:     http://localhost:5173   (log in as admin / admin)
+#   REST API:   http://localhost:8080/api/v1/  (spec: /api/v1/openapi.yaml)
+#   legacy UI:  http://localhost:8080/
+name: ona-next
+
+x-db-env: &db-env
+  ONA_DB_HOST: db
+  ONA_DB_ROOT_PASSWORD: ${ONA_DB_ROOT_PASSWORD:-ona-root-dev}
+  ONA_DB_USER: ona_sys
+  ONA_DB_PASSWORD: ${ONA_DB_PASSWORD:-ona-sys-dev}
+
+services:
+  db:
+    image: mariadb:10.11
+    environment:
+      MARIADB_ROOT_PASSWORD: ${ONA_DB_ROOT_PASSWORD:-ona-root-dev}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  api:
+    build:
+      context: ./api
+      dockerfile: docker/Dockerfile
+    environment:
+      <<: *db-env
+      ONA_DEFAULT_DOMAIN: example.com
+    volumes:
+      # Live-edit the PHP code. www/local/config is regenerated on start.
+      - ./api:/opt/ona
+    ports:
+      - "8080:80"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/api/v1/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  web:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
+    environment:
+      API_PROXY_TARGET: http://api:80
+      VITE_POLL: "1"
+    volumes:
+      - ./web:/app
+      - web-node-modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  db-data:
+  web-node-modules:

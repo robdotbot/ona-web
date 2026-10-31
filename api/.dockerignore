@@ -1,0 +1,5 @@
+www/local/config/database_settings.inc.php
+www/local/config/run_install
+rest/tests/.phpunit*
+Vagrantfile
+.git
