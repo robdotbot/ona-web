@@ -12,12 +12,15 @@ class Router
     private array $routes = [];
 
     /**
-     * @param string $pattern  path with {name} placeholders, e.g. /subnets/{id}
+     * @param string $pattern  path with placeholders, e.g. /subnets/{id}. A
+     *                         placeholder matches digits and is passed as an
+     *                         int, except {key}, which matches a short name
+     *                         ([A-Za-z0-9_.-], no slashes) and stays a string.
      * @param bool   $public   true only for login, health and the spec
      */
     public function add(string $method, string $pattern, callable $handler, bool $public = false): void
     {
-        $regex = '#^' . preg_replace('#\{(\w+)\}#', '(?P<$1>\d+)', $pattern) . '$#';
+        $regex = '#^' . preg_replace(['#\{key\}#', '#\{(?!key\})(\w+)\}#'], ['(?P<key>[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})', '(?P<$1>\d+)'], $pattern) . '$#';
         $this->routes[] = [$method, $regex, $handler, $public];
     }
 
@@ -30,7 +33,8 @@ class Router
                 $allowed[] = $method;
                 continue;
             }
-            $params = array_map('intval', array_filter($m, 'is_string', ARRAY_FILTER_USE_KEY));
+            $params = [];
+            foreach (array_filter($m, 'is_string', ARRAY_FILTER_USE_KEY) as $k => $v) $params[$k] = $k === 'key' ? $v : (int)$v;
             if (!$public) {
                 Auth::requireUser();
                 if (!in_array($req->method, ['GET', 'HEAD', 'OPTIONS'], true)) Auth::checkCsrf($req);

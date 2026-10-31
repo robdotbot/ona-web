@@ -5,7 +5,10 @@ info:
   description: |
     JSON API over OpenNetAdmin (ONA). Every write runs the matching ONA DCM
     module through `run_module()`, so ONA's own validation, permission checks
-    (`auth()`) and schema apply.
+    (`auth()`) and schema apply. The exceptions are the tables ONA has no
+    module for (users, groups, permissions, system configuration, custom
+    attribute types): those are written directly, with the same permission
+    checks as the classic admin windows.
 
     **Authentication.** `POST /auth/login` with an ONA username and password
     starts a session (cookie `ONA_SESSION_ID`). Every other endpoint except
@@ -32,6 +35,13 @@ tags:
   - name: hosts
   - name: interfaces
   - name: dns
+  - name: vlans
+  - name: blocks
+  - name: dhcp
+  - name: custom-attributes
+  - name: locations
+  - name: domains
+  - name: admin
   - name: search
   - name: lookups
 
@@ -141,18 +151,6 @@ paths:
       summary: Device types (manufacturer, model and role)
       responses:
         '200': { $ref: '#/components/responses/LookupList' }
-  /domains:
-    get:
-      tags: [lookups]
-      summary: DNS domains
-      responses:
-        '200': { $ref: '#/components/responses/LookupList' }
-  /locations:
-    get:
-      tags: [lookups]
-      summary: Locations
-      responses:
-        '200': { $ref: '#/components/responses/LookupList' }
 
   /subnets:
     get:
@@ -196,6 +194,7 @@ paths:
                 ip: { type: string, example: 10.1.0.0 }
                 netmask: { type: string, description: 'Prefix length (24 or /24) or dotted mask', example: '24' }
                 typeId: { type: integer, example: 13 }
+                vlanId: { type: integer, description: VLAN to assign the subnet to }
       responses:
         '201':
           description: Created
@@ -235,6 +234,7 @@ paths:
                 ip: { type: string }
                 netmask: { type: string }
                 typeId: { type: integer }
+                vlanId: { type: integer, description: VLAN to assign the subnet to; 0 detaches it }
       responses:
         '200':
           description: Updated
@@ -582,6 +582,1480 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /vlan-campuses:
+    get:
+      tags: [vlans]
+      summary: List VLAN campuses
+      parameters:
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/perPage' }
+        - { name: sort, in: query, schema: { type: string, enum: [name, -name, id, -id], default: name } }
+        - { name: q, in: query, description: "Name substring", schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListMeta'
+                  - properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/VlanCampus' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [vlans]
+      summary: Add a VLAN campus (module vlan_campus_add, permission vlan_add)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: MAIN, description: "Stored upper case" }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VlanCampus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /vlan-campuses/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [vlans]
+      summary: Get a VLAN campus
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VlanCampus' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [vlans]
+      summary: Change a VLAN campus (module vlan_campus_modify, permission vlan_modify)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VlanCampus' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [vlans]
+      summary: Delete a VLAN campus (module vlan_campus_del, permission vlan_del)
+      description: |
+        Refused with 409 while the campus has VLANs.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /vlans:
+    get:
+      tags: [vlans]
+      summary: List VLANs
+      parameters:
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/perPage' }
+        - { name: sort, in: query, schema: { type: string, enum: [number, -number, name, -name, campus, -campus], default: number } }
+        - { name: q, in: query, description: "Name substring or VLAN number", schema: { type: string } }
+        - { name: campusId, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListMeta'
+                  - properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Vlan' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [vlans]
+      summary: Add a VLAN (module vlan_add, permission vlan_add)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [campusId, name, number]
+              properties:
+                campusId: { type: integer }
+                name: { type: string, example: SERVERS, description: "Stored upper case" }
+                number: { type: integer, minimum: 1, maximum: 4094, example: 10 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VlanDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /vlans/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [vlans]
+      summary: Get a VLAN
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VlanDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [vlans]
+      summary: Change a VLAN (module vlan_modify, permission vlan_modify)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                campusId: { type: integer }
+                name: { type: string }
+                number: { type: integer, minimum: 1, maximum: 4094 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VlanDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [vlans]
+      summary: Delete a VLAN (module vlan_del, permission vlan_del)
+      description: |
+        Refused with 409 while subnets are assigned to the VLAN (detach them with `PATCH /subnets/{id}` `vlanId: 0`).
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /blocks:
+    get:
+      tags: [blocks]
+      summary: List blocks
+      parameters:
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/perPage' }
+        - { name: sort, in: query, schema: { type: string, enum: [start, -start, name, -name, end, -end], default: start } }
+        - { name: q, in: query, description: "Name/notes substring, or an address to find the blocks containing it", schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListMeta'
+                  - properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Block' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [blocks]
+      summary: Add a block (module block_add, permission advanced)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, start, end]
+              properties:
+                name: { type: string, example: DATACENTER-1, description: "Stored upper case, spaces become -" }
+                start: { type: string, example: 10.0.0.0 }
+                end: { type: string, example: 10.0.255.255 }
+                notes: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BlockDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /blocks/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [blocks]
+      summary: Get a block
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BlockDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [blocks]
+      summary: Change a block (module block_modify, permission advanced)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string }
+                start: { type: string }
+                end: { type: string }
+                notes: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BlockDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [blocks]
+      summary: Delete a block (module block_del, permission advanced)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /dhcp-servers:
+    get:
+      tags: [dhcp]
+      summary: List DHCP servers
+      description: |
+        Hosts that serve at least one subnet or belong to a failover group.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/DhcpServer' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [dhcp]
+      summary: Make a host serve a subnet (module dhcp_server_add, permission advanced)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hostId, subnetId]
+              properties:
+                hostId: { type: integer }
+                subnetId: { type: integer }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpServerDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /dhcp-servers/{id}:
+    parameters: [ { name: id, in: path, required: true, description: The server's host ID, schema: { type: integer } } ]
+    get:
+      tags: [dhcp]
+      summary: Get a DHCP server with its subnets, failover groups and server options
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpServerDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /dhcp-servers/{id}/subnets/{subnetId}:
+    parameters:
+      - { name: id, in: path, required: true, description: The server's host ID, schema: { type: integer } }
+      - { name: subnetId, in: path, required: true, schema: { type: integer } }
+    delete:
+      tags: [dhcp]
+      summary: Stop a host serving a subnet (module dhcp_server_del, permission advanced)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /dhcp-failover-groups:
+    get:
+      tags: [dhcp]
+      summary: List DHCP failover groups
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/DhcpFailoverGroup' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [dhcp]
+      summary: Add a DHCP failover group (module dhcp_failover_group_add, permission advanced)
+      description: |
+        Unset settings take the ONA defaults (`dhcp_*` in the ONA configuration).
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [primaryServerId, secondaryServerId]
+              properties:
+                primaryServerId: { type: integer, description: Host ID }
+                secondaryServerId: { type: integer, description: Host ID }
+                responseDelay: { type: integer }
+                unackedUpdates: { type: integer }
+                maxBalance: { type: integer }
+                primaryPort: { type: integer }
+                peerPort: { type: integer }
+                mclt: { type: integer }
+                split: { type: integer, maximum: 255 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpFailoverGroupDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /dhcp-failover-groups/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [dhcp]
+      summary: Get a DHCP failover group
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpFailoverGroupDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [dhcp]
+      summary: Change a DHCP failover group (module dhcp_failover_group_modify, permission advanced)
+      description: |
+        The servers cannot be changed (ONA writes the old ones back); delete the group and add a new one instead.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                responseDelay: { type: integer }
+                unackedUpdates: { type: integer }
+                maxBalance: { type: integer }
+                primaryPort: { type: integer }
+                peerPort: { type: integer }
+                mclt: { type: integer }
+                split: { type: integer, maximum: 255 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpFailoverGroupDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [dhcp]
+      summary: Delete a DHCP failover group (module dhcp_failover_group_del, permission advanced)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /dhcp-pools:
+    get:
+      tags: [dhcp]
+      summary: List DHCP pools
+      parameters:
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/perPage' }
+        - { name: sort, in: query, schema: { type: string, enum: [start, -start, subnet, -subnet], default: start } }
+        - { name: subnetId, in: query, schema: { type: integer } }
+        - { name: failoverGroupId, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListMeta'
+                  - properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/DhcpPool' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [dhcp]
+      summary: Add a DHCP pool (module dhcp_pool_add, permission advanced)
+      description: |
+        Refused with 409 if the range overlaps another pool or contains host addresses.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [start, end]
+              properties:
+                start: { type: string, example: 10.1.0.100, description: "IPv4; the subnet is the one containing it" }
+                end: { type: string, example: 10.1.0.200 }
+                failoverGroupId: { type: integer }
+                leaseLength: { type: integer }
+                leaseGrace: { type: integer }
+                leaseRenewal: { type: integer }
+                leaseRebind: { type: integer }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpPool' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /dhcp-pools/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [dhcp]
+      summary: Get a DHCP pool
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpPool' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [dhcp]
+      summary: Change a DHCP pool (module dhcp_pool_modify, permission advanced)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                start: { type: string }
+                end: { type: string }
+                failoverGroupId: { type: integer, description: 0 removes the pool from its group }
+                leaseLength: { type: integer }
+                leaseGrace: { type: integer }
+                leaseRenewal: { type: integer }
+                leaseRebind: { type: integer }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpPool' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [dhcp]
+      summary: Delete a DHCP pool (module dhcp_pool_del, permission advanced)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /dhcp-options:
+    get:
+      tags: [dhcp]
+      summary: DHCP option definitions (read-only)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/DhcpOption' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /dhcp-entries:
+    get:
+      tags: [dhcp]
+      summary: List DHCP option values
+      parameters:
+        - { name: hostId, in: query, schema: { type: integer } }
+        - { name: subnetId, in: query, schema: { type: integer } }
+        - { name: serverId, in: query, description: "Host ID of a DHCP server", schema: { type: integer } }
+        - { name: global, in: query, description: "`true` for global options only", schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/DhcpEntry' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [dhcp]
+      summary: Add a DHCP option value (module dhcp_entry_add, permission advanced)
+      description: |
+        Send exactly one of `hostId`, `subnetId`, `serverId` or `global: true`.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [optionId, value]
+              properties:
+                optionId: { type: integer }
+                value: { type: string, example: 10.1.0.1 }
+                hostId: { type: integer }
+                subnetId: { type: integer }
+                serverId: { type: integer, description: Host ID of a DHCP server }
+                global: { type: boolean }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /dhcp-entries/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [dhcp]
+      summary: Get a DHCP option value
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpEntry' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [dhcp]
+      summary: Change a DHCP option value (module dhcp_entry_modify, permission advanced)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                optionId: { type: integer }
+                value: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpEntry' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [dhcp]
+      summary: Delete a DHCP option value (module dhcp_entry_del, permission advanced)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /custom-attribute-types:
+    get:
+      tags: [custom-attributes]
+      summary: List custom attribute types
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/CustomAttributeType' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [custom-attributes]
+      summary: Add a custom attribute type (permission advanced)
+      description: |
+        ONA has no module for this; written directly, like the classic admin window.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: nmap_scan }
+                notes: { type: string }
+                validationRule: { type: string, example: '/^[YN]$/', description: "PCRE pattern values must match" }
+                failedRuleText: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomAttributeType' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /custom-attribute-types/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [custom-attributes]
+      summary: Get a custom attribute type
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomAttributeType' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [custom-attributes]
+      summary: Change a custom attribute type (permission advanced)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string }
+                notes: { type: string }
+                validationRule: { type: string }
+                failedRuleText: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomAttributeType' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [custom-attributes]
+      summary: Delete a custom attribute type (permission advanced)
+      description: |
+        Refused with 409 while attributes use the type.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /custom-attributes:
+    get:
+      tags: [custom-attributes]
+      summary: List custom attributes
+      parameters:
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/perPage' }
+        - { name: sort, in: query, schema: { type: string, enum: [type, -type, value, -value, id, -id], default: type } }
+        - { name: hostId, in: query, schema: { type: integer } }
+        - { name: subnetId, in: query, schema: { type: integer } }
+        - { name: vlanId, in: query, schema: { type: integer } }
+        - { name: typeId, in: query, schema: { type: integer } }
+        - { name: q, in: query, description: "Value substring", schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListMeta'
+                  - properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/CustomAttribute' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [custom-attributes]
+      summary: Add a custom attribute (module custom_attribute_add, permission custom_attribute_add)
+      description: |
+        Send exactly one of `hostId`, `subnetId` or `vlanId`. A record can have one value per type.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [typeId, value]
+              properties:
+                typeId: { type: integer }
+                value: { type: string, description: "Must match the type's validation rule" }
+                hostId: { type: integer }
+                subnetId: { type: integer }
+                vlanId: { type: integer }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomAttribute' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /custom-attributes/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [custom-attributes]
+      summary: Get a custom attribute
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomAttribute' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [custom-attributes]
+      summary: Change a custom attribute (module custom_attribute_modify, permission custom_attribute_modify)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                typeId: { type: integer }
+                value: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomAttribute' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [custom-attributes]
+      summary: Delete a custom attribute (module custom_attribute_del, permission custom_attribute_del)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /locations:
+    get:
+      tags: [locations]
+      summary: List locations
+      description: |
+        Every location, unpaginated, sorted by reference.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Location' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [locations]
+      summary: Add a location (module location_add, permission location_add)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reference, name]
+              properties:
+                reference: { type: string, maxLength: 10, example: HQ, description: "Short code, stored upper case" }
+                name: { type: string, example: Head office }
+                address: { type: string }
+                city: { type: string }
+                state: { type: string }
+                zipCode: { type: integer, maximum: 99999 }
+                latitude: { type: string }
+                longitude: { type: string }
+                misc: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Location' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /locations/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [locations]
+      summary: Get a location
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Location' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [locations]
+      summary: Change a location (module location_modify, permission location_add)
+      description: |
+        ONA uses `location_add` for changes too.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                reference: { type: string }
+                name: { type: string }
+                address: { type: string }
+                city: { type: string }
+                state: { type: string }
+                zipCode: { type: integer, maximum: 99999 }
+                latitude: { type: string }
+                longitude: { type: string }
+                misc: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Location' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [locations]
+      summary: Delete a location (module location_del, permission location_del)
+      description: |
+        Refused with 409 while hosts are at the location.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /domains:
+    get:
+      tags: [domains]
+      summary: List domains
+      description: |
+        Every domain, unpaginated, sorted by full name.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Domain' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [domains]
+      summary: Add a domain (module domain_add, permission advanced)
+      description: |
+        Unset SOA values take the ONA defaults (`dns_*` system configuration).
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: lab, description: "The domain's own name; with parentId it becomes lab.<parent>" }
+                parentId: { type: integer }
+                primaryMaster: { type: string }
+                adminEmail: { type: string }
+                refresh: { type: integer }
+                retry: { type: integer }
+                expiry: { type: integer }
+                minimum: { type: integer }
+                defaultTtl: { type: integer }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Domain' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /domains/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [domains]
+      summary: Get a domain
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Domain' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [domains]
+      summary: Change a domain (module domain_modify, permission advanced)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string }
+                parentId: { type: integer, description: 0 makes it a top-level domain }
+                primaryMaster: { type: string }
+                adminEmail: { type: string }
+                refresh: { type: integer }
+                retry: { type: integer }
+                expiry: { type: integer }
+                minimum: { type: integer }
+                defaultTtl: { type: integer }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Domain' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [domains]
+      summary: Delete a domain (module domain_del, permission advanced)
+      description: |
+        Refused with 409 while DNS records use the domain or it has child domains.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /users:
+    get:
+      tags: [admin]
+      summary: List users
+      description: |
+        Needs `user_admin`.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/User' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [admin]
+      summary: Add a user (permission user_admin)
+      description: |
+        ONA has no module for this; written directly, like the classic admin window. Changes take effect at the next login.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, pattern: '^[A-Za-z0-9.\-_]+$' }
+                password: { type: string, format: password, description: "Stored as ONA stores local passwords (unsalted MD5)" }
+                groupIds: { type: array, items: { type: integer } }
+                permissions: { type: array, items: { type: string }, description: "Permissions granted directly, in addition to the groups" }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /users/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [admin]
+      summary: Get a user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [admin]
+      summary: Change a user (permission user_admin)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                username: { type: string }
+                password: { type: string, format: password }
+                groupIds: { type: array, items: { type: integer }, description: "Replaces the group list" }
+                permissions: { type: array, items: { type: string }, description: "Replaces the direct permissions" }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [admin]
+      summary: Delete a user (permission user_admin)
+      description: |
+        You cannot delete the user you are logged in as (409).
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /groups:
+    get:
+      tags: [admin]
+      summary: List groups
+      description: |
+        Needs `user_admin`.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Group' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [admin]
+      summary: Add a group (permission user_admin)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string }
+                permissions: { type: array, items: { type: string } }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /groups/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [admin]
+      summary: Get a group
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [admin]
+      summary: Change a group (permission user_admin)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string }
+                description: { type: string }
+                permissions: { type: array, items: { type: string }, description: "Replaces the group permissions" }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [admin]
+      summary: Delete a group (permission user_admin)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /permissions:
+    get:
+      tags: [admin]
+      summary: Permission names (needs user_admin)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Permission' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /sys-config:
+    get:
+      tags: [admin]
+      summary: List system configuration entries
+      description: |
+        Needs `advanced`.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SysConfig' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [admin]
+      summary: Add a system configuration entry (permission advanced)
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, pattern: '^[A-Za-z0-9_]+$' }
+                value: { type: string }
+                description: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SysConfig' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /sys-config/{key}:
+    parameters: [ { $ref: '#/components/parameters/key' } ]
+    get:
+      tags: [admin]
+      summary: Get a system configuration entry
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SysConfig' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [admin]
+      summary: Change a system configuration entry (permission advanced)
+      description: |
+        Refused with 409 for entries ONA marks as not editable.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                value: { type: string, description: "Must match the entry's validation rule" }
+                description: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SysConfig' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [admin]
+      summary: Delete a system configuration entry (permission advanced)
+      description: |
+        Refused with 409 for entries ONA marks as not deleteable.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /plugins:
+    get:
+      tags: [admin]
+      summary: Installed plugins (needs advanced)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Plugin' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /plugins/{key}:
+    parameters: [ { $ref: '#/components/parameters/key' } ]
+    patch:
+      tags: [admin]
+      summary: Enable or disable a plugin (permission advanced)
+      description: |
+        Uses the same `plugin_disabled` marker file as the classic UI. 409 if the plugin directory is not writable by the web server. Running a plugin installer stays in the classic UI.
+      parameters:
+        - { $ref: '#/components/parameters/csrf' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Plugin' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
 components:
   securitySchemes:
     session:
@@ -603,6 +2077,11 @@ components:
       name: perPage
       in: query
       schema: { type: integer, minimum: 1, maximum: 200, default: 25 }
+    key:
+      name: key
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$' }
     csrf:
       name: X-CSRF-Token
       in: header
@@ -671,7 +2150,7 @@ components:
               type: string
               enum: [bad_request, unauthorized, forbidden, csrf_failed, not_found, method_not_allowed,
                      conflict, unsupported_media_type, validation_failed, module_error, internal_error,
-                     not_implemented, not_installed, database_unavailable]
+                     not_installed, database_unavailable]
             message: { type: string }
             details: { type: object, additionalProperties: true }
 
@@ -859,6 +2338,252 @@ components:
                 priority: { type: integer }
                 weight: { type: integer }
                 port: { type: integer }
+
+    VlanCampus:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, example: MAIN }
+        vlanCount: { type: integer }
+
+    Vlan:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, example: SERVERS }
+        number: { type: integer, example: 10 }
+        campus: { $ref: '#/components/schemas/Ref' }
+        subnetCount: { type: integer }
+
+    VlanDetail:
+      allOf:
+        - $ref: '#/components/schemas/Vlan'
+        - type: object
+          properties:
+            subnets: { type: array, items: { $ref: '#/components/schemas/Subnet' } }
+
+    Block:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, example: DATACENTER-1 }
+        start: { type: string, example: 10.0.0.0 }
+        end: { type: string, example: 10.0.255.255 }
+        ipVersion: { type: integer, enum: [4, 6] }
+        size: { type: string, description: Number of addresses (a string because IPv6 sizes overflow integers) }
+        notes: { type: string }
+
+    BlockDetail:
+      allOf:
+        - $ref: '#/components/schemas/Block'
+        - type: object
+          properties:
+            subnets: { type: array, description: Subnets starting inside the block, items: { $ref: '#/components/schemas/Subnet' } }
+
+    HostRef:
+      type: object
+      properties:
+        id: { type: integer }
+        fqdn: { type: string }
+
+    DhcpServer:
+      type: object
+      properties:
+        id: { type: integer, description: The server's host ID }
+        host:
+          type: object
+          properties:
+            id: { type: integer }
+            fqdn: { type: string }
+            primaryIp: { type: [string, 'null'] }
+        subnetCount: { type: integer }
+
+    DhcpServerDetail:
+      allOf:
+        - $ref: '#/components/schemas/DhcpServer'
+        - type: object
+          properties:
+            subnets: { type: array, items: { $ref: '#/components/schemas/Subnet' } }
+            failoverGroups: { type: array, items: { $ref: '#/components/schemas/DhcpFailoverGroup' } }
+            options: { type: array, items: { $ref: '#/components/schemas/DhcpEntry' } }
+
+    DhcpFailoverGroup:
+      type: object
+      properties:
+        id: { type: integer }
+        primaryServer: { oneOf: [ { $ref: '#/components/schemas/HostRef' }, { type: 'null' } ] }
+        secondaryServer: { oneOf: [ { $ref: '#/components/schemas/HostRef' }, { type: 'null' } ] }
+        responseDelay: { type: integer }
+        unackedUpdates: { type: integer }
+        maxBalance: { type: integer }
+        primaryPort: { type: integer }
+        peerPort: { type: integer }
+        mclt: { type: integer }
+        split: { type: integer }
+
+    DhcpFailoverGroupDetail:
+      allOf:
+        - $ref: '#/components/schemas/DhcpFailoverGroup'
+        - type: object
+          properties:
+            pools: { type: array, items: { $ref: '#/components/schemas/DhcpPool' } }
+
+    DhcpPool:
+      type: object
+      properties:
+        id: { type: integer }
+        subnet: { oneOf: [ { $ref: '#/components/schemas/Ref' }, { type: 'null' } ] }
+        failoverGroupId: { type: [integer, 'null'] }
+        start: { type: string, example: 10.1.0.100 }
+        end: { type: string, example: 10.1.0.200 }
+        size: { type: integer }
+        leaseLength: { type: integer }
+        leaseGrace: { type: integer }
+        leaseRenewal: { type: integer }
+        leaseRebind: { type: integer }
+
+    DhcpOption:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, example: routers }
+        displayName: { type: string, example: Default Gateway }
+        number: { type: integer, example: 3 }
+        type: { type: string, enum: [L, S, N, I, B] }
+        typeName: { type: string, example: IP address list }
+        system: { type: boolean }
+
+    DhcpEntry:
+      type: object
+      properties:
+        id: { type: integer }
+        option:
+          type: object
+          properties:
+            id: { type: integer }
+            name: { type: string }
+            displayName: { type: string }
+            number: { type: integer }
+            type: { type: string }
+        value: { type: string }
+        scope: { type: string, enum: [global, subnet, host, server] }
+        target: { oneOf: [ { $ref: '#/components/schemas/Ref' }, { type: 'null' } ], description: The subnet or host (name is its FQDN); null for global }
+
+    CustomAttributeType:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, example: nmap_scan }
+        notes: { type: string }
+        validationRule: { type: string, example: '/^[YN]$/' }
+        failedRuleText: { type: string }
+        useCount: { type: integer }
+
+    CustomAttribute:
+      type: object
+      properties:
+        id: { type: integer }
+        type: { $ref: '#/components/schemas/Ref' }
+        value: { type: string }
+        target:
+          type: object
+          properties:
+            kind: { type: string, enum: [host, subnet, vlan] }
+            id: { type: integer }
+
+    Location:
+      type: object
+      properties:
+        id: { type: integer }
+        reference: { type: string, example: HQ }
+        name: { type: string, example: Head office }
+        address: { type: string }
+        city: { type: string }
+        state: { type: string }
+        zipCode: { type: [integer, 'null'] }
+        latitude: { type: string }
+        longitude: { type: string }
+        misc: { type: string }
+        deviceCount: { type: integer }
+
+    Domain:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, description: Full name, example: lab.example.com }
+        shortName: { type: string, description: The domain's own label(s), example: lab }
+        parent: { oneOf: [ { $ref: '#/components/schemas/Ref' }, { type: 'null' } ] }
+        primaryMaster: { type: string }
+        adminEmail: { type: string }
+        serial: { type: integer }
+        refresh: { type: integer }
+        retry: { type: integer }
+        expiry: { type: integer }
+        minimum: { type: integer }
+        defaultTtl: { type: integer }
+        recordCount: { type: integer }
+
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        level: { type: integer }
+        createdAt: { type: [string, 'null'] }
+        lastLoginAt: { type: [string, 'null'] }
+        groups: { type: array, items: { $ref: '#/components/schemas/Ref' } }
+        permissions: { type: array, description: Permissions granted directly (not through groups), items: { type: string } }
+
+    Group:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        description: { type: string }
+        memberCount: { type: integer }
+        permissions: { type: array, items: { type: string } }
+
+    GroupDetail:
+      allOf:
+        - $ref: '#/components/schemas/Group'
+        - type: object
+          properties:
+            members:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: integer }
+                  username: { type: string }
+
+    Permission:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, example: host_add }
+        description: { type: string }
+
+    SysConfig:
+      type: object
+      properties:
+        name: { type: string, example: dns_defaultdomain }
+        value: { type: string }
+        description: { type: string }
+        validationRule: { type: string }
+        failedRuleText: { type: string }
+        editable: { type: boolean }
+        deleteable: { type: boolean }
+
+    Plugin:
+      type: object
+      properties:
+        name: { type: string, example: ona_nmap_scans }
+        version: { type: [string, 'null'] }
+        description: { type: [string, 'null'] }
+        helpUrl: { type: [string, 'null'] }
+        enabled: { type: boolean }
+        hasInstaller: { type: boolean, description: The plugin has an install step (run it from the classic UI) }
+        local: { type: boolean, description: Installed under www/local/plugins }
 
     SearchResult:
       type: object

@@ -40,7 +40,7 @@ class Ona
             throw new ApiError(403, 'forbidden', 'Permission denied', ['module' => $module]);
         }
         $message = self::firstError($text);
-        $conflict = preg_match('/conflict|already|exists with the values/i', $message);
+        $conflict = preg_match('/conflict|already|exists with the values|in use|can.t be deleted/i', $message);
         throw new ApiError($conflict ? 409 : 422, $conflict ? 'conflict' : 'module_error', $message, [
             'module' => $module,
             'moduleStatus' => (int)$status,
@@ -61,6 +61,40 @@ class Ona
             if (preg_match('/^ERROR\s*=>\s*(.+)$/', $line, $m)) return $m[1];
         }
         return $lines[0] ?? 'The operation failed';
+    }
+
+    /**
+     * For the few admin tables ONA has no DCM module for (users, groups,
+     * permissions, sys_config, custom attribute types): run direct writes in
+     * one transaction, after the same permission check the legacy UI makes.
+     * $fn uses db_insert_record()/db_update_record()/db_delete_records(),
+     * which take values as bound parameters.
+     */
+    public static function write(array $requiredPerms, string $logMessage, callable $fn)
+    {
+        global $onadb;
+        Auth::requirePerm(...$requiredPerms);
+        $onadb->StartTrans();
+        try {
+            $result = $fn($onadb);
+        } catch (\Throwable $e) {
+            $onadb->FailTrans();
+            $onadb->CompleteTrans();
+            throw $e;
+        }
+        if (!$onadb->CompleteTrans()) throw new ApiError(500, 'internal_error', 'Database update failed');
+        printmsg('INFO => [REST API] ' . $logMessage, 0);
+        return $result;
+    }
+
+    /** Throw unless a db_*_record() call succeeded. */
+    public static function dbOk(array $result): array
+    {
+        if ($result[0]) {
+            error_log('ona-rest: db write failed: ' . ($GLOBALS['self']['error'] ?? ''));
+            throw new ApiError(500, 'internal_error', 'Database update failed');
+        }
+        return $result;
     }
 
     // ---- IP helpers -------------------------------------------------------
@@ -130,6 +164,23 @@ class Ona
         while (!$rs->EOF) $rows[] = $rs->FetchRow();
         $rs->Close();
         return $rows;
+    }
+
+    /** Highest id in a table (the table name is always a literal from our code). */
+    public static function maxId(string $table): int
+    {
+        return (int)(self::select("SELECT MAX(id) AS id FROM {$table}")[0]['id'] ?? 0);
+    }
+
+    /**
+     * The id of the row a module just added: the modules don't report it, so
+     * take the newest row after $before that matches $where.
+     */
+    public static function newId(string $table, int $before, string $where = '1=1', array $params = []): int
+    {
+        $rows = self::select("SELECT id FROM {$table} WHERE id > ? AND ({$where}) ORDER BY id DESC", array_merge([$before], $params), 1);
+        if (!$rows) throw new ApiError(500, 'internal_error', 'The record was added but could not be read back');
+        return (int)$rows[0]['id'];
     }
 
     public static function count(string $sql, array $params = []): int
@@ -207,6 +258,12 @@ class Input
         return array_key_exists($key, $this->data);
     }
 
+    /** The undecoded value, for arrays and fields the typed helpers don't cover. */
+    public function raw(string $key)
+    {
+        return $this->data[$key] ?? null;
+    }
+
     public function string(string $key, bool $required = false, int $max = 255): ?string
     {
         if (!$this->has($key) || $this->data[$key] === null || $this->data[$key] === '') {
@@ -222,6 +279,20 @@ class Input
         $v = trim($v);
         if (strlen($v) > $max) $this->errors[$key] = "must be at most {$max} characters";
         if (preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f]/', $v)) $this->errors[$key] = 'contains control characters';
+        return $v;
+    }
+
+    /**
+     * A short name (VLAN, campus, block, group...). Restricted to a safe
+     * character set: some ONA modules (vlan_modify, vlan_campus_modify,
+     * block_modify) put the new name into SQL without escaping it.
+     */
+    public function label(string $key, bool $required = false, int $max = 63): ?string
+    {
+        $v = $this->string($key, $required, $max);
+        if ($v !== null && $v !== '' && !preg_match('#^[A-Za-z0-9][A-Za-z0-9 ._:/\#()+-]*$#', $v)) {
+            $this->errors[$key] = 'may only contain letters, digits, spaces and . _ : / # ( ) + -';
+        }
         return $v;
     }
 

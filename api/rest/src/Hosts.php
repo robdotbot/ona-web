@@ -121,6 +121,13 @@ class Hosts
         if ($set && !array_filter($set)) $set['set_notes'] = ($set['set_notes'] ?? $host['notes']) ?: ' ';
 
         if ($set) Ona::run('host_modify', ['host' => $id] + $set, ['host_modify']);
+        if (($set['set_location'] ?? null) === '' && $host['device_id']) {
+            // host_modify ignores an empty set_location (it can't clear a
+            // location, in the legacy UI either), so clear it on the device.
+            Ona::write(['host_modify'], "Host location CLEARED: {$id}", function ($db) use ($host) {
+                Ona::dbOk(db_update_record($db, 'devices', ['id' => (int)$host['device_id']], ['location_id' => 0]));
+            });
+        }
         if ($name !== null && $name !== '' && $name !== self::fqdn($host)) {
             // Renaming a host renames its primary DNS record.
             Ona::run('dns_record_modify', ['name' => $host['dns_id'], 'set_name' => $name], ['host_modify']);
@@ -160,7 +167,7 @@ class Hosts
                 $out['deviceType'] = Lookups::deviceType((int)$device['device_type_id']);
                 if ($device['location_id']) {
                     $loc = Ona::byId('locations', (int)$device['location_id']);
-                    if ($loc) $out['location'] = Lookups::formatLocation($loc);
+                    if ($loc) $out['location'] = Locations::format($loc);
                 }
             }
         }
