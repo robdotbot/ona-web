@@ -86,7 +86,12 @@ EOM
 
     // Use the find functions based on the type 
     // this requires allowed types to have an 'ona_find_' related function
-    eval("list(\$status, \$rows, \$reference) = ona_find_".$options['type']."('".$options['reference']."');");
+    // Look up the record directly instead of building code from the request.
+    if ($options['type'] == 'host') {
+        list($status, $rows, $reference) = ona_find_host($options['reference']);
+    } else {
+        list($status, $rows, $reference) = ona_find_subnet($options['reference']);
+    }
 
     if ($status or !$rows) {
         $self['error'] = "ERROR => Unable to find a {$options['type']} matching {$options['reference']}";
