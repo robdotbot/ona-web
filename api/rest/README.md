@@ -118,11 +118,12 @@ fixes themselves are also applied to the legacy code; see `../UPSTREAM.md`.
 - **Option escaping.** Module options are passed as an escaped string, because
   `run_module()` corrupts array values containing `=` or `&`.
 
-- **Names that reach unescaped SQL.** `vlan_modify`, `vlan_campus_modify`
-  and `block_modify` put the new name into a `LIKE '…'` clause without
-  escaping it. The API only accepts names for VLANs, campuses, blocks and
-  locations from a safe character set (`Input::label()`: letters, digits,
-  spaces and `. _ : / # ( ) + -`).
+- **Names that reached unescaped SQL.** `vlan_modify`, `vlan_campus_modify`
+  and `block_modify` used to put the new name into a `LIKE '…'` clause
+  without escaping it (now fixed in the legacy code, see `../UPSTREAM.md`).
+  As defence in depth the API still only accepts names for VLANs, campuses,
+  blocks and locations from a safe character set (`Input::label()`: letters,
+  digits, spaces and `. _ : / # ( ) + -`).
 - **Plugins** are found by listing the plugin directories; a plugin name
   from the URL is only used if it matches a listed directory, and
   `plugin_info.php` is parsed as text, never included.

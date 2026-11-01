@@ -6,9 +6,7 @@ interface alongside it. Everything runs in Docker on this computer.
 
 Requirements
 ------------
-Docker Desktop (Windows 10/11 or macOS 12+):
-https://www.docker.com/products/docker-desktop/
-Start Docker Desktop before starting ona-web.
+{{REQUIREMENTS}}
 
 Start
 -----

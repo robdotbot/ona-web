@@ -379,7 +379,7 @@ EOM
     // If they are specifying a new name, process it.
     if ($options['set_name']) {
         // Validate that there isn't already an block with this name
-        list($status, $rows, $record) =  db_get_records($onadb, 'blocks', "id != {$block['id']} AND name LIKE '{$options['set_name']}'");
+        list($status, $rows, $record) =  db_get_records($onadb, 'blocks', "id != " . (int)$block['id'] . " AND name = " . $onadb->qstr($options['set_name']));
 
         if ($status or $rows) {
             printmsg("DEBUG => The block {$options['set_name']} already exists!",3);
