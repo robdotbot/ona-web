@@ -29,8 +29,6 @@ $r->add('POST', '/auth/password', fn(Request $req) => Account::changePassword($r
 
 // --- Search & reference data -----------------------------------------------
 $r->add('GET', '/search', fn(Request $req) => Search::run($req));
-$r->add('GET', '/subnet-types', fn() => Lookups::subnetTypes());
-$r->add('GET', '/device-types', fn() => Lookups::deviceTypes());
 
 // --- Subnets ---------------------------------------------------------------
 $r->add('GET', '/subnets', fn(Request $req) => Subnets::list($req));
@@ -95,7 +93,6 @@ $r->add('POST', '/dhcp-pools', fn(Request $req) => DhcpPools::create($req));
 $r->add('GET', '/dhcp-pools/{id}', fn(Request $req, array $p) => DhcpPools::get($p['id']));
 $r->add('PATCH', '/dhcp-pools/{id}', fn(Request $req, array $p) => DhcpPools::update($req, $p['id']));
 $r->add('DELETE', '/dhcp-pools/{id}', fn(Request $req, array $p) => DhcpPools::delete($p['id']));
-$r->add('GET', '/dhcp-options', fn() => DhcpOptions::list());
 $r->add('GET', '/dhcp-entries', fn(Request $req) => DhcpEntries::list($req));
 $r->add('POST', '/dhcp-entries', fn(Request $req) => DhcpEntries::create($req));
 $r->add('GET', '/dhcp-entries/{id}', fn(Request $req, array $p) => DhcpEntries::get($p['id']));
@@ -125,6 +122,15 @@ $r->add('POST', '/domains', fn(Request $req) => Domains::create($req));
 $r->add('GET', '/domains/{id}', fn(Request $req, array $p) => Domains::get($p['id']));
 $r->add('PATCH', '/domains/{id}', fn(Request $req, array $p) => Domains::update($req, $p['id']));
 $r->add('DELETE', '/domains/{id}', fn(Request $req, array $p) => Domains::delete($p['id']));
+
+// --- Reference data (lookup tables; writes need `advanced`) ---------------
+foreach (array_keys(Reference::RESOURCES) as $res) {
+    $r->add('GET', "/{$res}", fn() => Reference::list($res));
+    $r->add('POST', "/{$res}", fn(Request $req) => Reference::create($res, $req));
+    $r->add('GET', "/{$res}/{id}", fn(Request $req, array $p) => Reference::get($res, $p['id']));
+    $r->add('PATCH', "/{$res}/{id}", fn(Request $req, array $p) => Reference::update($res, $req, $p['id']));
+    $r->add('DELETE', "/{$res}/{id}", fn(Request $req, array $p) => Reference::delete($res, $p['id']));
+}
 
 // --- Admin -----------------------------------------------------------------
 // Reads here need the admin permission too (user_admin / advanced), as in ONA.
