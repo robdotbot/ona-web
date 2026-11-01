@@ -352,3 +352,10 @@ export const useDeleteSysConfig = sysConfig.remove;
 export const usePlugins = (enabled = true) => useQuery({ queryKey: ['plugins', 'all'], queryFn: all<Plugin>('/plugins'), enabled });
 export const useSetPluginEnabled = () =>
   useWrite(({ name, enabled }: { name: string; enabled: boolean }) => api<Plugin>('PATCH', `/plugins/${encodeURIComponent(name)}`, { body: { enabled } }));
+
+// ---- Your own account -----------------------------------------------------
+
+export const useChangePassword = () =>
+  useMutation({
+    mutationFn: (b: { currentPassword: string; newPassword: string }) => api<void>('POST', '/auth/password', { body: b }),
+  });

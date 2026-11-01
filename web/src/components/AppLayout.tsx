@@ -14,11 +14,12 @@ import {
   useMantineColorScheme,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconExternalLink, IconLogout, IconMoon, IconSearch, IconSun, IconUser } from '@tabler/icons-react';
+import { IconExternalLink, IconKey, IconLogout, IconMoon, IconSearch, IconSun, IconUser } from '@tabler/icons-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useLogout, useSession } from '../api/hooks';
 import { NAV_GROUPS } from './nav';
 import { LEGACY_UI_URL } from '../lib/legacy';
+import { openChangePassword } from './ChangePasswordForm';
 
 
 function GlobalSearch() {
@@ -86,6 +87,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
               </Menu.Target>
               <Menu.Dropdown>
                 <Menu.Label>Signed in as {session?.user.username}</Menu.Label>
+                <Menu.Item leftSection={<IconKey size={14} />} onClick={openChangePassword}>
+                  Change password
+                </Menu.Item>
                 <Menu.Item component="a" href={LEGACY_UI_URL} target="_blank" leftSection={<IconExternalLink size={14} />}>
                   Classic ONA interface
                 </Menu.Item>

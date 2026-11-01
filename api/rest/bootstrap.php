@@ -19,6 +19,7 @@ require __DIR__ . '/src/CustomAttributes.php';
 require __DIR__ . '/src/Locations.php';
 require __DIR__ . '/src/Domains.php';
 require __DIR__ . '/src/Admin.php';
+require __DIR__ . '/src/Account.php';
 
 use OnaRest\ApiError;
 use OnaRest\Request;

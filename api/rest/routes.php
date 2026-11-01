@@ -25,6 +25,7 @@ $r->add('POST', '/auth/logout', function (Request $req) {
     return [204, null];
 }, true);
 $r->add('GET', '/auth/session', fn() => [200, Auth::session()]);
+$r->add('POST', '/auth/password', fn(Request $req) => Account::changePassword($req));
 
 // --- Search & reference data -----------------------------------------------
 $r->add('GET', '/search', fn(Request $req) => Search::run($req));
