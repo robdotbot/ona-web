@@ -106,6 +106,23 @@ Things the new UI doesn't cover (device types and models, DNS views and DNS
 server assignments, config archives, reports, DHCP option definitions) remain
 available in the classic UI, linked from the user menu.
 
+## Releases (Windows and macOS)
+
+Each GitHub release has a zip per OS: the stack above with the web UI
+prebuilt and served by nginx, plus double-click launchers (`start.bat` /
+`start.command`) that create `.env` with random database passwords, run
+`docker compose up` and open http://localhost:8000. Users only need Docker
+Desktop. Ports are bound to 127.0.0.1; the bundle's own `README.txt`
+explains settings and upgrades. The sources are in `release/`.
+
+- Build locally: `cd web && npm ci && cd .. && scripts/build-release.sh v0.2.0`
+  (writes `dist-release/`).
+- Publish: push a tag such as `v0.2.0`, or run the **Release** workflow by
+  hand. It runs the web tests, builds both zips, starts the macOS bundle with
+  Docker and runs the REST API test suite inside it, then creates the release
+  with the zips and `SHA256SUMS`. Pull requests that touch the release files
+  run everything except publishing.
+
 ## Development
 
 Edits to `api/` and `web/` are live: the `api` container bind-mounts
