@@ -29,6 +29,7 @@ $r->add('POST', '/auth/password', fn(Request $req) => Account::changePassword($r
 
 // --- Search & reference data -----------------------------------------------
 $r->add('GET', '/search', fn(Request $req) => Search::run($req));
+$r->add('GET', '/stats', fn() => Dashboard::stats());
 
 // --- Subnets ---------------------------------------------------------------
 $r->add('GET', '/subnets', fn(Request $req) => Subnets::list($req));
@@ -38,6 +39,7 @@ $r->add('PATCH', '/subnets/{id}', fn(Request $req, array $p) => Subnets::update(
 $r->add('DELETE', '/subnets/{id}', fn(Request $req, array $p) => Subnets::delete($p['id']));
 $r->add('GET', '/subnets/{id}/next-ip', fn(Request $req, array $p) => Subnets::nextIp($p['id']));
 $r->add('GET', '/subnets/{id}/map', fn(Request $req, array $p) => Subnets::map($p['id']));
+$r->add('GET', '/subnets/{id}/addresses', fn(Request $req, array $p) => Subnets::addresses($req, $p['id']));
 
 // --- Hosts -----------------------------------------------------------------
 $r->add('GET', '/hosts', fn(Request $req) => Hosts::list($req));
@@ -45,6 +47,7 @@ $r->add('POST', '/hosts', fn(Request $req) => Hosts::create($req));
 $r->add('GET', '/hosts/{id}', fn(Request $req, array $p) => Hosts::get($p['id']));
 $r->add('PATCH', '/hosts/{id}', fn(Request $req, array $p) => Hosts::update($req, $p['id']));
 $r->add('DELETE', '/hosts/{id}', fn(Request $req, array $p) => Hosts::delete($p['id']));
+$r->add('GET', '/hosts/{id}/actions', fn(Request $req, array $p) => HostActions::list($p['id']));
 
 // --- Interfaces ------------------------------------------------------------
 $r->add('GET', '/interfaces', fn(Request $req) => Interfaces::list($req));

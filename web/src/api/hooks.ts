@@ -58,6 +58,9 @@ import type {
   Tag,
   TagName,
   TagTarget,
+  AddressPage,
+  HostAction,
+  Stats,
 } from './types';
 
 // ---- Session --------------------------------------------------------------
@@ -167,6 +170,10 @@ export const useCreateSubnet = () => useWrite((b: SubnetInput) => api<SubnetDeta
 export const useUpdateSubnet = (id: number) =>
   useWrite((b: SubnetInput) => api<SubnetDetail>('PATCH', `/subnets/${id}`, { body: b }));
 export const useDeleteSubnet = () => useWrite((id: number) => api<void>('DELETE', `/subnets/${id}`));
+export const fetchSubnetAddresses = (id: number, query: { page?: number; perPage?: number; status?: string }) =>
+  api<AddressPage>('GET', `/subnets/${id}/addresses`, { query });
+export const useSubnetAddresses = (id: number, query: { page?: number; perPage?: number; status?: string }) =>
+  useQuery({ queryKey: ['subnets', 'addresses', id, query], queryFn: () => fetchSubnetAddresses(id, query), placeholderData: keepPreviousData });
 export const useSubnetMap = (id: number, enabled = true) =>
   useQuery({ queryKey: ['subnets', 'map', id], queryFn: () => api<SubnetMap>('GET', `/subnets/${id}/map`), enabled });
 export const fetchNextIp = (subnetId: number) =>
@@ -192,6 +199,9 @@ export const useCreateHost = () => useWrite((b: HostInput) => api<HostDetail>('P
 export const useUpdateHost = (id: number) =>
   useWrite((b: HostInput) => api<HostDetail>('PATCH', `/hosts/${id}`, { body: b }));
 export const useDeleteHost = () => useWrite((id: number) => api<void>('DELETE', `/hosts/${id}`));
+export const useHostActions = (id: number) =>
+  useQuery({ queryKey: ['hosts', 'actions', id], queryFn: () => api<{ data: HostAction[] }>('GET', `/hosts/${id}/actions`).then((r) => r.data) });
+export const useStats = () => useQuery({ queryKey: ['stats'], queryFn: () => api<Stats>('GET', '/stats') });
 
 // ---- Interfaces -----------------------------------------------------------
 
@@ -367,6 +377,8 @@ export const useDeleteCustomAttribute = attrs.remove;
 
 // ---- Locations & domains --------------------------------------------------
 
+/** (Not "useLocation", which react-router already uses.) */
+export const useLocationRecord = (id?: number) => useDetail<Location>('locations', id);
 const locations = crud<Location>('/locations');
 export const useCreateLocation = locations.create;
 export const useUpdateLocation = locations.update;
@@ -409,7 +421,8 @@ export const useTagNames = () => useQuery({ queryKey: ['tags', 'names'], queryFn
 export const useAddTag = () => useWrite((b: { name: string } & TagTarget) => api<Tag>('POST', '/tags', { body: b }));
 export const useDeleteTag = () => useWrite((id: number) => api<void>('DELETE', `/tags/${id}`));
 
-export const useMessages = (target: TagTarget, includeExpired = false) =>
+/** Messages on one host or subnet, or all active ones when target is omitted. */
+export const useMessages = (target: TagTarget | Record<string, never>, includeExpired = false) =>
   useQuery({
     queryKey: ['messages', 'list', target, includeExpired],
     queryFn: () => api<{ data: Message[] }>('GET', '/messages', { query: { ...(target as Record<string, number>), ...(includeExpired ? { includeExpired: 'true' } : {}) } }).then((r) => r.data),

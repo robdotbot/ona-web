@@ -15,6 +15,7 @@ import { useListParams } from '../lib/useListParams';
 import { CustomAttributesPanel, DhcpOptionsPanel, DhcpPoolsPanel } from '../components/panels';
 import { MessagesPanel, TagsBar } from '../components/TagsMessages';
 import { SubnetAddressMap } from '../components/AddressMaps';
+import { SubnetAddressesPanel } from '../components/SubnetAddresses';
 import { openBulkMove } from '../components/InterfaceActions';
 import { NotFoundPage } from './NotFoundPage';
 
@@ -121,6 +122,7 @@ export function SubnetDetailPage() {
         onRowClick={(r) => r.host && navigate(`/hosts/${r.host.id}`)}
         empty="No addresses are in use on this subnet."
       />
+      <SubnetAddressesPanel subnet={s} />
       {s.ipVersion === 4 && <DhcpPoolsPanel subnetId={s.id} />}
       <DhcpOptionsPanel scope={{ subnetId: s.id }} />
       <CustomAttributesPanel target={{ subnetId: s.id }} />

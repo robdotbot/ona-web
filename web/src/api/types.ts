@@ -119,6 +119,12 @@ export interface HostDetail extends Host {
   /** Other hosts' interfaces shared with this host. */
   sharedInterfaces: Interface[];
   dnsRecords: DnsRecord[];
+  /** What the host serves. */
+  services: {
+    dnsDomains: { id: number; domain: Ref; role: DnsServerRole }[];
+    dhcpSubnets: { id: number; name: string; network: string }[];
+    dhcpFailoverGroupIds: number[];
+  };
 }
 
 export interface Interface {
@@ -372,7 +378,7 @@ export interface TagName {
 
 export interface Message {
   id: number;
-  target: { kind: 'host' | 'subnet'; id: number };
+  target: { kind: 'host' | 'subnet'; id: number; name: string | null };
   priority: 0 | 1 | 2 | 3;
   priorityName: 'info' | 'high' | 'medium' | 'low';
   message: string;
@@ -439,4 +445,35 @@ export interface SubnetMap {
 export interface InterfaceMoveResult {
   committed: boolean;
   moves: { from: string; to: string; host: string }[];
+}
+
+export interface Stats {
+  counts: Record<
+    | 'subnets' | 'hosts' | 'interfaces' | 'dnsRecords' | 'domains' | 'vlans' | 'vlanCampuses' | 'blocks'
+    | 'locations' | 'dhcpPools' | 'customAttributes' | 'dhcpServers' | 'dnsServers' | 'activeMessages',
+    number
+  >;
+  version: string | null;
+}
+
+export interface HostAction {
+  name: string;
+  title: string;
+  url: string;
+}
+
+export type AddressStatus = 'used' | 'free' | 'pool' | 'reserved';
+
+export interface SubnetAddress {
+  ip: string;
+  status: AddressStatus;
+  interfaceId: number | null;
+  host: HostRef | null;
+  poolId: number | null;
+}
+
+/** /subnets/{id}/addresses: totals are strings when they exceed 64-bit integers (big IPv6 subnets). */
+export interface AddressPage {
+  data: SubnetAddress[];
+  meta: { page: number; perPage: number; total: number | string; totalPages: number | string };
 }

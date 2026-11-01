@@ -2,6 +2,7 @@ import {
   IconAdjustments,
   IconCalculator,
   IconDatabase,
+  IconHome,
   IconHistory,
   IconReportAnalytics,
   IconBoxMultiple,
@@ -27,6 +28,7 @@ export interface NavSection {
 export const NAV_GROUPS: { label?: string; sections: NavSection[] }[] = [
   {
     sections: [
+      { path: '/', label: 'Overview', icon: IconHome },
       { path: '/subnets', label: 'Subnets', icon: IconNetwork },
       { path: '/hosts', label: 'Hosts', icon: IconServer },
       { path: '/dns', label: 'DNS records', icon: IconWorld },

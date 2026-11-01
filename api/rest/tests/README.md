@@ -51,8 +51,9 @@ skipped when run outside the container.
    and commit), tags and the `tag` list filter, messages (expiry), the
    change log (with `log_to_db` switched on for the test), config archives
    (exact text with `=`/`&`, diff), reports (usage, text runs, HTML and
-   reserved parameters refused), the subnet address map and the advanced
-   host/subnet list filters. The NAT test creates `10.in-addr.arpa` if it is
+   reserved parameters refused), the subnet address map, the per-address
+   list (all/used/free paging, IPv6 totals), home page counts, host
+   services and host action links, and the advanced host/subnet list filters. The NAT test creates `10.in-addr.arpa` if it is
    missing, since ONA always adds a PTR for the NAT address.
 6. Errors: 404, 409 conflict, 422 with `details.fields`, 400, 415, 405
    (with `Allow`).

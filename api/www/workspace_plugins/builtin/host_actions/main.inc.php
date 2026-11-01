@@ -73,6 +73,14 @@ foreach ($conf[$modulename] as $hostaction=>$hval) {
     // If the URL has data in it, print.
     // TODO: MDP, maybe offer an $hval['icon'] option to use a different icon specified in the $conf['hostaction']['Name']['icon'] variable
     if ($hval['url']) {
+    // The URL can hold custom attribute values (and host names) that any
+    // user with custom_attribute_add can set; escape it and the title for
+    // HTML, and never link script-running schemes (javascript:, data: ...).
+    $scheme = strtolower(trim((string)strtok(preg_replace('/[\x00-\x20]+/', '', $hval['url']), ':')));
+    if (in_array($scheme, array('javascript', 'data', 'vbscript', 'file'), true)) continue;
+    $hval['url'] = htmlspecialchars($hval['url'], ENT_QUOTES);
+    $hval['title'] = htmlspecialchars($hval['title'], ENT_QUOTES);
+    $hostaction = htmlspecialchars($hostaction, ENT_QUOTES);
     $modbodyhtml .= <<<EOL
             <span>
                 <a title="{$hval['title']}"
