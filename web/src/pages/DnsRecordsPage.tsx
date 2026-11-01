@@ -3,7 +3,7 @@ import { Button, Group, Select, TextInput } from '@mantine/core';
 import { IconPlus, IconSearch } from '@tabler/icons-react';
 import { createColumnHelper, type ColumnDef } from '@tanstack/react-table';
 import { useNavigate } from 'react-router-dom';
-import { useCan, useDeleteDnsRecord, useDnsRecords, useDomains } from '../api/hooks';
+import { useCan, useDeleteDnsRecord, useDnsRecords, useDnsViews, useDomains } from '../api/hooks';
 import { DNS_TYPES, type DnsRecord } from '../api/types';
 import { DataTable } from '../components/DataTable';
 import { PageHeader } from '../components/PageHeader';
@@ -14,7 +14,8 @@ import { useListParams } from '../lib/useListParams';
 import { useFilterInput } from '../lib/useFilterInput';
 
 export function DnsRecordsPage() {
-  const { params, update } = useListParams({ sort: 'name' }, ['type', 'domainId', 'hostId']);
+  const { params, update } = useListParams({ sort: 'name' }, ['type', 'domainId', 'hostId', 'enabled', 'viewId']);
+  const views = useDnsViews();
   const records = useDnsRecords(params);
   const domains = useDomains();
   const del = useDeleteDnsRecord();
@@ -59,7 +60,7 @@ export function DnsRecordsPage() {
         actions={canAdd && <Button leftSection={<IconPlus size={16} />} onClick={() => openDnsRecordForm()}>Add record</Button>}
       />
       <Group mb="md">
-        <TextInput placeholder="Filter by name, text, notes or IP" leftSection={<IconSearch size={16} />} value={q} onChange={(e) => setQ(e.currentTarget.value)} w={300} aria-label="Filter records" />
+        <TextInput placeholder="Filter by name, text, notes or IP" leftSection={<IconSearch size={16} />} value={q} onChange={(e) => setQ(e.currentTarget.value)} w={300} aria-label="Filter records" data-shortcut="list-filter" />
         <Select placeholder="All types" clearable data={[...DNS_TYPES]} value={(params.type as string) ?? null} onChange={(v) => update({ type: v ?? undefined })} w={130} aria-label="Filter by type" />
         <Select
           placeholder="All domains"
@@ -71,6 +72,26 @@ export function DnsRecordsPage() {
           w={220}
           aria-label="Filter by domain"
         />
+        <Select
+          placeholder="Enabled and disabled"
+          clearable
+          data={[{ value: 'true', label: 'Enabled only' }, { value: 'false', label: 'Disabled / scheduled' }]}
+          value={(params.enabled as string) ?? null}
+          onChange={(v) => update({ enabled: v ?? undefined })}
+          w={200}
+          aria-label="Filter by state"
+        />
+        {(views.data?.length ?? 0) > 1 && (
+          <Select
+            placeholder="All views"
+            clearable
+            data={(views.data ?? []).map((v) => ({ value: String(v.id), label: v.name }))}
+            value={params.viewId !== undefined ? String(params.viewId) : null}
+            onChange={(v) => update({ viewId: v ?? undefined })}
+            w={160}
+            aria-label="Filter by DNS view"
+          />
+        )}
         {params.hostId && <Button variant="subtle" size="xs" onClick={() => update({ hostId: undefined })}>Clear host filter</Button>}
       </Group>
       <DataTable

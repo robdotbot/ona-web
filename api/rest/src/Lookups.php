@@ -4,22 +4,6 @@ namespace OnaRest;
 /** Read-only reference data the forms need (small tables, not paginated). */
 class Lookups
 {
-    public static function subnetTypes(): array
-    {
-        $rows = Ona::select('SELECT id, short_name, display_name, notes FROM subnet_types ORDER BY display_name');
-        return [200, ['data' => array_map(fn($r) => [
-            'id' => (int)$r['id'], 'name' => $r['display_name'], 'shortName' => $r['short_name'], 'notes' => $r['notes'],
-        ], $rows)]];
-    }
-
-    public static function deviceTypes(): array
-    {
-        $rows = Ona::select('SELECT id FROM device_types');
-        $types = array_map(fn($r) => self::deviceType((int)$r['id']), $rows);
-        usort($types, fn($a, $b) => strcasecmp($a['name'], $b['name']));
-        return [200, ['data' => $types]];
-    }
-
     private static array $deviceTypes = [];
 
     /** "Manufacturer Model (role)", as the legacy UI shows device types. */

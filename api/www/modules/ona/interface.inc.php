@@ -1534,7 +1534,8 @@ EOM
 ///////////////////////////////////////////////////////////////////////
 function interface_share_del($options="") {
     global $conf, $self, $onadb;
-    printmsg("DEBUG => interface_share_del({$options['ip']}) called", 3);
+    // ($options is still the raw string here; indexing it is a TypeError on PHP 8.)
+    printmsg("DEBUG => interface_share_del({$options}) called", 3);
 
     // Version - UPDATE on every edit!
     $version = '1.00';

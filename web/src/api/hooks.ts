@@ -36,6 +36,28 @@ import type {
   Session,
   Subnet,
   SubnetDetail,
+  Config,
+  ConfigDetail,
+  ConfigDiff,
+  ConfigType,
+  DeviceTypeRecord,
+  DhcpOptionRecord,
+  DnsView,
+  DomainServer,
+  InterfaceMoveResult,
+  LogEntry,
+  Manufacturer,
+  Message,
+  Model,
+  Report,
+  ReportOutput,
+  ReportUsage,
+  Role,
+  SubnetMap,
+  SubnetType,
+  Tag,
+  TagName,
+  TagTarget,
 } from './types';
 
 // ---- Session --------------------------------------------------------------
@@ -139,12 +161,14 @@ export interface SubnetInput {
   vlanId?: number;
 }
 
-export const useSubnets = (p: ListParams) => useList<Subnet>('subnets', p);
+export const useSubnets = (p: ListParams, enabled = true) => useList<Subnet>('subnets', p, enabled);
 export const useSubnet = (id?: number) => useDetail<SubnetDetail>('subnets', id);
 export const useCreateSubnet = () => useWrite((b: SubnetInput) => api<SubnetDetail>('POST', '/subnets', { body: b }));
 export const useUpdateSubnet = (id: number) =>
   useWrite((b: SubnetInput) => api<SubnetDetail>('PATCH', `/subnets/${id}`, { body: b }));
 export const useDeleteSubnet = () => useWrite((id: number) => api<void>('DELETE', `/subnets/${id}`));
+export const useSubnetMap = (id: number, enabled = true) =>
+  useQuery({ queryKey: ['subnets', 'map', id], queryFn: () => api<SubnetMap>('GET', `/subnets/${id}/map`), enabled });
 export const fetchNextIp = (subnetId: number) =>
   api<{ ip: string }>('GET', `/subnets/${subnetId}/next-ip`).then((r) => r.ip);
 
@@ -186,11 +210,38 @@ export const useCreateInterface = () =>
 export const useUpdateInterface = () =>
   useWrite(({ id, ...b }: InterfaceInput & { id: number }) => api<Interface>('PATCH', `/interfaces/${id}`, { body: b }));
 export const useDeleteInterface = () => useWrite((id: number) => api<void>('DELETE', `/interfaces/${id}`));
+export const useMoveInterfaceToHost = () =>
+  useWrite(({ id, hostId }: { id: number; hostId: number }) => api<Interface>('POST', `/interfaces/${id}/move`, { body: { hostId } }));
+export const useShareInterface = () =>
+  useWrite(({ id, ...b }: { id: number; hostId: number; name?: string }) => api<Interface>('POST', `/interfaces/${id}/shares`, { body: b }));
+export const useUnshareInterface = () =>
+  useWrite(({ id, hostId }: { id: number; hostId: number }) => api<void>('DELETE', `/interfaces/${id}/shares/${hostId}`));
+export const useAddNat = () =>
+  useWrite(({ id, ip }: { id: number; ip: string }) => api<Interface>('POST', `/interfaces/${id}/nat`, { body: { ip } }));
+export const useDeleteNat = () => useWrite((id: number) => api<void>('DELETE', `/interfaces/${id}/nat`));
+export interface InterfaceMoveInput {
+  start: string;
+  end?: string;
+  newStart: string;
+  newEnd?: string;
+  commit?: boolean;
+}
+/** A preview (commit false) changes nothing, so only a commit invalidates the cache. */
+export const useBulkMoveInterfaces = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (b: InterfaceMoveInput) => api<InterfaceMoveResult>('POST', '/interfaces/move', { body: b }),
+    onSuccess: (r) => { if (r.committed) qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'session' }); },
+  });
+};
 
 // ---- DNS records ----------------------------------------------------------
 
 export interface DnsRecordInput {
   name?: string;
+  enabled?: boolean;
+  activeFrom?: string;
+  viewId?: number;
   type?: string;
   ip?: string;
   pointsTo?: string;
@@ -324,6 +375,78 @@ const domains = crud<Domain>('/domains');
 export const useCreateDomain = domains.create;
 export const useUpdateDomain = domains.update;
 export const useDeleteDomain = domains.remove;
+const domainServers = crud<DomainServer>('/domain-servers');
+export const useAddDomainServer = domainServers.create;
+export const useRemoveDomainServer = domainServers.remove;
+
+// ---- Reference data (lookup tables; writes need `advanced`) ---------------
+
+export interface ReferenceTypes {
+  manufacturers: Manufacturer;
+  models: Model;
+  roles: Role;
+  'device-types': DeviceTypeRecord;
+  'subnet-types': SubnetType;
+  'dhcp-options': DhcpOptionRecord;
+  'config-types': ConfigType;
+  'dns-views': DnsView;
+}
+export type ReferenceResource = keyof ReferenceTypes;
+export const useReference = <R extends ReferenceResource>(resource: R, enabled = true) =>
+  useQuery({ queryKey: [resource, 'all'], queryFn: all<ReferenceTypes[R]>(`/${resource}`), enabled });
+export const useReferenceWrite = (resource: ReferenceResource) => {
+  const c = crud<unknown>(`/${resource}`);
+  return { create: c.create(), update: c.update(), remove: c.remove() };
+};
+export const useDnsViews = () => useQuery({ queryKey: ['dns-views', 'all'], queryFn: all<DnsView>('/dns-views'), staleTime: 60_000 });
+export const useConfigTypes = () => useQuery({ queryKey: ['config-types', 'all'], queryFn: all<ConfigType>('/config-types'), staleTime: 60_000 });
+
+// ---- Tags & messages ------------------------------------------------------
+
+export const useTags = (target: TagTarget) =>
+  useQuery({ queryKey: ['tags', 'list', target], queryFn: () => api<{ data: Tag[] }>('GET', '/tags', { query: target as Record<string, number> }).then((r) => r.data) });
+export const useTagNames = () => useQuery({ queryKey: ['tags', 'names'], queryFn: all<TagName>('/tags/names'), staleTime: 30_000 });
+export const useAddTag = () => useWrite((b: { name: string } & TagTarget) => api<Tag>('POST', '/tags', { body: b }));
+export const useDeleteTag = () => useWrite((id: number) => api<void>('DELETE', `/tags/${id}`));
+
+export const useMessages = (target: TagTarget, includeExpired = false) =>
+  useQuery({
+    queryKey: ['messages', 'list', target, includeExpired],
+    queryFn: () => api<{ data: Message[] }>('GET', '/messages', { query: { ...(target as Record<string, number>), ...(includeExpired ? { includeExpired: 'true' } : {}) } }).then((r) => r.data),
+  });
+const messages = crud<Message>('/messages');
+export const useAddMessage = messages.create;
+export const useUpdateMessage = messages.update;
+export const useDeleteMessage = messages.remove;
+
+// ---- Config archives, reports, change log ----------------------------------
+
+export const useConfigs = (p: ListParams, enabled = true) => useList<Config>('configs', p, enabled);
+export const useConfig = (id?: number) => useDetail<ConfigDetail>('configs', id);
+export const useConfigDiff = (from?: number, to?: number) =>
+  useQuery({
+    queryKey: ['configs', 'diff', from, to],
+    queryFn: () => api<ConfigDiff>('GET', '/configs/diff', { query: { from, to } }),
+    enabled: !!from && !!to && from !== to,
+  });
+export const useAddConfig = () => useWrite((b: { hostId: number; typeId: number; text: string }) => api<ConfigDetail>('POST', '/configs', { body: b }));
+export const useDeleteConfig = () => useWrite((id: number) => api<void>('DELETE', `/configs/${id}`));
+
+export const useReports = () => useQuery({ queryKey: ['reports', 'all'], queryFn: all<Report>('/reports'), staleTime: 60_000 });
+export const useReportUsage = (name?: string) =>
+  useQuery({ queryKey: ['reports', 'usage', name], queryFn: () => api<ReportUsage>('GET', `/reports/${encodeURIComponent(name!)}`), enabled: !!name });
+/** Reports may change data (e.g. update last-response times), so refresh everything afterwards. */
+export const useRunReport = () =>
+  useWrite(({ name, ...b }: { name: string; format: 'text' | 'csv'; params: Record<string, string | boolean> }) =>
+    api<ReportOutput>('POST', `/reports/${encodeURIComponent(name)}/run`, { body: b }));
+
+export const useChangeLog = (p: ListParams, enabled = true) =>
+  useQuery({
+    queryKey: ['change-log', 'list', p],
+    queryFn: () => api<ListResponse<LogEntry> & { meta: { logToDb: boolean } }>('GET', '/change-log', { query: p }),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
 
 // ---- Admin ----------------------------------------------------------------
 
@@ -352,3 +475,10 @@ export const useDeleteSysConfig = sysConfig.remove;
 export const usePlugins = (enabled = true) => useQuery({ queryKey: ['plugins', 'all'], queryFn: all<Plugin>('/plugins'), enabled });
 export const useSetPluginEnabled = () =>
   useWrite(({ name, enabled }: { name: string; enabled: boolean }) => api<Plugin>('PATCH', `/plugins/${encodeURIComponent(name)}`, { body: { enabled } }));
+
+// ---- Your own account -----------------------------------------------------
+
+export const useChangePassword = () =>
+  useMutation({
+    mutationFn: (b: { currentPassword: string; newPassword: string }) => api<void>('POST', '/auth/password', { body: b }),
+  });

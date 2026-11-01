@@ -57,7 +57,8 @@ module through `run_module()` (`subnet_add`, `host_modify`,
 `dns_record_del`, `vlan_add`, `dhcp_pool_modify`, …), so ONA's validation,
 `auth()` permission checks and schema rules are reused, not reimplemented.
 The only exceptions are the tables ONA has no module for (users, groups,
-permissions, system configuration, custom attribute types), which the API
+permissions, system configuration, custom attribute types, reference data,
+and changing or deleting messages), which the API
 writes directly under the same permissions as the classic admin windows. Details, the endpoint →
 module → permission table and the security notes are in
 [`api/rest/README.md`](api/rest/README.md).
@@ -97,14 +98,31 @@ session lacks the ONA permission, and the API enforces it regardless.
   the subnet page too), and options set globally or per subnet, host or server.
 - **Custom attributes**: attribute types (with validation rules) and values
   on hosts, subnets and VLANs.
-- **Locations** and **domains** (add, edit, delete).
+- **Locations** and **domains** (add, edit, delete), and the **DNS servers**
+  of each domain (master / slave / forward, with their NS records).
+- **DNS records** can be turned off and on, scheduled to start later, and
+  put in a DNS view (split horizon).
+- **Interfaces**: share an address with other hosts (VRRP/HSRP/CARP), add
+  external NAT addresses, move an interface to another host, and move a
+  range of addresses to another subnet (with a preview).
+- **Tags** on hosts and subnets (and a tag filter on the lists),
+  **messages** on host and subnet pages, and the **config archive** on the
+  host page (view, compare two versions, add, delete).
+- **Reports** from plugins, run as text or CSV, and the ONA **change log**
+  (filled while the `log_to_db` setting is 1).
+- **Tools**: IPv4/IPv6 calculator, an address map on IPv4 subnet pages (up
+  to /20), a map of the subnets and free space in each block, advanced
+  host and subnet filters (device type, location, IP range, custom
+  attribute, tag, VLAN), and keyboard shortcuts (`?` lists them).
+- **Reference data**: manufacturers, models, roles, device types, subnet
+  types, DHCP option definitions, config types and DNS views.
 - **Admin**: users, groups and their permissions (`user_admin`), system
   configuration and plugins (`advanced`). Plugin install steps still run in
   the classic UI.
 
-Things the new UI doesn't cover (device types and models, DNS views and DNS
-server assignments, config archives, reports, DHCP option definitions) remain
-available in the classic UI, linked from the user menu.
+Plugin windows with their own HTML (for example the nmap scan views) can't be
+ported generically and remain in the classic UI, linked from the user menu
+and the Reports page.
 
 ## Releases (Windows, macOS and Linux)
 

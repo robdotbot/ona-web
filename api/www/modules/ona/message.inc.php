@@ -146,7 +146,9 @@ EOM
     }
 
     // Get a username or "anonymous"
-    $username = (isset($_SESSION['username'])) ? $_SESSION['username'] : "anonymous";
+    // The logged-in user lives in $_SESSION['ona']['auth']; nothing sets
+    // $_SESSION['username'], so every message used to be from "anonymous".
+    $username = $_SESSION['ona']['auth']['user']['username'] ?? ($_SESSION['username'] ?? "anonymous");
 
     // Expiration date format
     if ($options['expiration']) {
@@ -167,6 +169,9 @@ EOM
             'priority'             => $priority,
             'username'             => $username,
             'expiration'           => $expiration,
+            // mtime has no default with explicit_defaults_for_timestamp
+            // (the MariaDB 10.10+ default), so set it.
+            'mtime'                => date('Y-m-d H:i:s'),
             'message_text'         => $options['message']
         )
     );

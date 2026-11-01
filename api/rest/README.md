@@ -37,8 +37,10 @@ api/
    "Permission denied" → 403, conflicts (duplicates, overlaps, records still
    in use) → 409, anything else → 422 with the module's output lines in
    `details.output`.
-6. ONA has no modules for users, groups, permissions, `sys_config` and
-   custom attribute types. For those, `Ona::write()` checks the same
+6. ONA has no modules for users, groups, permissions, `sys_config`,
+   custom attribute types, the reference data tables (manufacturers, models,
+   roles, device types, subnet types, DHCP option definitions, config types,
+   DNS views) or for changing and deleting messages. For those, `Ona::write()` checks the same
    permission the legacy admin window checks (`user_admin` or `advanced`) and
    runs `db_insert_record()` / `db_update_record()` / `db_delete_records()`
    (bound values) in one transaction. Reads of users, groups, permissions,
@@ -76,6 +78,22 @@ api/
 | `POST/PATCH /locations…` | `location_add` / `location_modify` | `location_add` |
 | `DELETE /locations/{id}` | `location_del` | `location_del` |
 | `POST/PATCH/DELETE /domains…` | `domain_add` / `_modify` / `_del` | `advanced` |
+| `POST /domain-servers`, `DELETE /domain-servers/{id}` | `domain_server_add` / `_del` | `advanced` |
+| `PATCH /dns-records/{id}` `enabled` / `activeFrom` / `viewId` | `dns_record_modify` (`set_ebegin`, `set_view`) | `host_modify` |
+| `POST /interfaces/{id}/move` | `interface_move_host` | `advanced` |
+| `POST/DELETE /interfaces/{id}/shares…` | `interface_share` / `_del` | `interface_del` |
+| `POST /interfaces/{id}/nat` | `nat_add` (runs `interface_add`) | `interface_modify`, `host_add` |
+| `DELETE /interfaces/{id}/nat` | `nat_del` (runs `interface_del`) | `interface_modify`, `interface_del`, `host_del` |
+| `POST /interfaces/move` | `interface_move` | `interface_modify` |
+| `POST /tags` | `tag_add` | `host_add` (host) / `subnet_add` (subnet) |
+| `DELETE /tags/{id}` | `tag_del` | `host_del` / `subnet_del` |
+| `POST /messages` | `message_add` | `advanced` |
+| `PATCH/DELETE /messages/{id}` | (direct) | `advanced` |
+| `/configs…` (reads too) | `config_add` / `_del` / `_display` / `_diff` | `host_config_admin` |
+| `GET /reports…`, `POST /reports/{name}/run` | `report_run` | (login; modules a report calls check their own) |
+| `GET /change-log` | (reads `ona_logs`) | `advanced` |
+| `/manufacturers`, `/models`, `/roles`, `/device-types`, `/subnet-types`, `/dhcp-options`, `/config-types`, `/dns-views` writes | (direct) | `advanced` |
+| `POST /auth/password` | (direct, own account) | (login) |
 | `/custom-attribute-types…` writes | (direct) | `advanced` |
 | `/users…`, `/groups…`, `GET /permissions` | (direct) | `user_admin` |
 | `/sys-config…` | (direct) | `advanced` |
@@ -124,6 +142,14 @@ fixes themselves are also applied to the legacy code; see `../UPSTREAM.md`.
   As defence in depth the API still only accepts names for VLANs, campuses,
   blocks and locations from a safe character set (`Input::label()`: letters,
   digits, spaces and `. _ : / # ( ) + -`).
+- **Reports** only run names that `report_run list=Y` returned and that
+  have a `report.inc.php`, only in the `text` and `csv` formats (a plugin's
+  HTML output is never returned), and parameters must be lower-case names
+  that `report_run` / `run_module` don't use themselves (`name`, `format`,
+  `module_loglevel`, …) with string values.
+- **Config archives** take the config text in the body; there is no way to
+  pass a file name. The text goes first in the module options, so
+  `run_module()`'s log line drops it.
 - **Plugins** are found by listing the plugin directories; a plugin name
   from the URL is only used if it matches a listed directory, and
   `plugin_info.php` is parsed as text, never included.
@@ -143,6 +169,20 @@ rate limiting.
   changes (delete and re-create the group) and only sends changed settings.
 - `host_modify` can't clear a host's location (in the legacy UI either);
   `PATCH /hosts/{id}` with `locationId: 0` clears it on the device record.
+- `dns_record_modify` sets a record's begin date to "now" on any change that
+  doesn't set one, which re-enables disabled and scheduled records. The API
+  resends the record's own date, moved by one second so the module sees a
+  change. Disabling (`set_ebegin=0`) or picking the default view
+  (`set_view=0`) alone are falsy and would print the usage text, so they get
+  the `set_ttl=" <ttl>"` companion.
+- `domain_server_add` can't find a domain by ID, and uses the server name as
+  the NS record's target, so the API sends both as names.
+- `interface_move` without `commit` exits with status 7 (107 after
+  `run_module()`), which the API treats as the preview.
+- `nat_add` always adds a PTR record for the NAT address, so a reverse zone
+  must exist.
+- ONA's install data starts the `configuration_types` sequence behind the
+  rows it seeds; the API skips IDs that are already taken.
 - Several `*_modify` modules print their usage text unless some `set_*`
   option is truthy, or fail when nothing changed; the API only sends real
   changes and adds a no-op companion where needed (see the comments in

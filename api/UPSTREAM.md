@@ -42,3 +42,14 @@ Not yet proposed upstream, fixed only here:
 | `startSession()` no longer logs in the `unix_username` from `?options=` when the User-Agent is `console-module-interface` (both are client supplied). It still skips the session cookie for `dcm.pl`; `dcm.php` authenticates those requests itself. | `www/include/functions_general.inc.php` |
 | SQL injection through names: `vlan_modify`, `vlan_campus_modify` and `block_modify` put the new name (and `vlan_modify` the new VLAN number) into their duplicate checks unescaped, so a name containing `'` broke the query and crafted input changed it. Strings are now quoted with `$onadb->qstr()`, `LIKE` becomes `=` (so `_`/`%` are no longer wildcards; the comparison stays case-insensitive), IDs are cast to integers and a non-numeric VLAN number is refused. | `www/modules/ona/vlan.inc.php`, `vlan_campus.inc.php`, `block.inc.php` |
 | Code execution in `tag_add`: it looked up the record by building a PHP `eval()` from the request's `reference` (unescaped, inside quotes), before its permission check, so any logged-in caller could run PHP on the server. It now calls `ona_find_host()` / `ona_find_subnet()` directly. | `www/modules/ona/tag.inc.php` |
+| SQL injection in `config_diff`: `ida` / `idb` went into an `id in (…)` clause unchecked. They must now be digits and are cast to integers. | `www/modules/ona/configuration.inc.php` |
+| Missing `auth()` in `config_display` and `config_diff`: any logged-in `dcm.php` user could read archived configs (which often hold passwords). Both now need `host_config_admin`, like the legacy config window. | `www/modules/ona/configuration.inc.php` |
+
+Bug fixes (not security), also only here:
+
+| Fix | Files |
+| --- | --- |
+| `interface_share_del` crashed on PHP 8 (it indexed the still-unparsed options string in its first log line). | `www/modules/ona/interface.inc.php` |
+| `message_add` and `config_add` failed on MariaDB 10.10+ (including the `mariadb:10.11` image in `docker-compose.yml`), where `explicit_defaults_for_timestamp` is on, because they didn't set the NOT NULL `mtime` / `ctime` column. They now set it. | `www/modules/ona/message.inc.php`, `configuration.inc.php` |
+| `message_add` recorded every message as from "anonymous" (it read `$_SESSION['username']`, which nothing sets); it now uses the logged-in user. | `www/modules/ona/message.inc.php` |
+| `DifferenceEngine.php` used PHP 4 style constructors, which PHP 8 never calls, so `config_diff` always returned an empty diff. They are now `__construct()`. | `www/include/DifferenceEngine.php` |

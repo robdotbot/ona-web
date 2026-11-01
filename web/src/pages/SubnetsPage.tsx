@@ -11,16 +11,20 @@ import { UsageBar } from '../components/UsageBar';
 import { openSubnetForm } from '../components/SubnetForm';
 import { useListParams } from '../lib/useListParams';
 import { useFilterInput } from '../lib/useFilterInput';
+import { SUBNET_FILTERS, useSubnetFilters } from '../components/ListFilters';
+import { TagBadges } from '../components/columns';
 
 const col = createColumnHelper<Subnet>();
 
 export function SubnetsPage() {
-  const { params, update } = useListParams({ sort: 'ip' }, ['typeId']);
+  const { params, update } = useListParams({ sort: 'ip' }, SUBNET_FILTERS);
   const subnets = useSubnets(params);
   const types = useSubnetTypes();
   const canAdd = useCan('subnet_add');
   const navigate = useNavigate();
   const [q, setQ] = useFilterInput(params.q, (v) => update({ q: v }));
+  const filters = useSubnetFilters(params, update);
+  const filtered = !!params.q || SUBNET_FILTERS.some((f) => params[f]);
 
   const columns = useMemo(
     () => [
@@ -34,6 +38,7 @@ export function SubnetsPage() {
       col.accessor((s) => s.type?.name ?? '', { id: 'type', header: 'Type', enableSorting: true, cell: (c) => c.getValue() && <Badge variant="light">{c.getValue()}</Badge> }),
       col.accessor('usage', { header: 'IP usage', cell: (c) => <UsageBar usage={c.getValue()} /> }),
       col.accessor((s) => `${s.usage.used} / ${s.usage.total}`, { id: 'used', header: 'Used / total' }),
+      col.accessor('tags', { header: 'Tags', cell: (c) => <TagBadges tags={c.getValue()} /> }),
     ],
     [],
   );
@@ -53,6 +58,7 @@ export function SubnetsPage() {
           onChange={(e) => setQ(e.currentTarget.value)}
           w={340}
           aria-label="Filter subnets"
+          data-shortcut="list-filter"
         />
         <Select
           placeholder="All types"
@@ -63,7 +69,9 @@ export function SubnetsPage() {
           w={200}
           aria-label="Filter by type"
         />
+        {filters.button}
       </Group>
+      {filters.panel}
       <DataTable
         columns={columns}
         data={subnets.data?.data}
@@ -75,7 +83,7 @@ export function SubnetsPage() {
         onPageChange={(page) => update({ page }, false)}
         onPerPageChange={(perPage) => update({ perPage })}
         onRowClick={(s) => navigate(`/subnets/${s.id}`)}
-        empty={params.q ? 'No subnets match.' : 'No subnets yet. Add one to get started.'}
+        empty={filtered ? 'No subnets match.' : 'No subnets yet. Add one to get started.'}
       />
     </>
   );

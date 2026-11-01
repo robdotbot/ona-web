@@ -25,11 +25,10 @@ $r->add('POST', '/auth/logout', function (Request $req) {
     return [204, null];
 }, true);
 $r->add('GET', '/auth/session', fn() => [200, Auth::session()]);
+$r->add('POST', '/auth/password', fn(Request $req) => Account::changePassword($req));
 
 // --- Search & reference data -----------------------------------------------
 $r->add('GET', '/search', fn(Request $req) => Search::run($req));
-$r->add('GET', '/subnet-types', fn() => Lookups::subnetTypes());
-$r->add('GET', '/device-types', fn() => Lookups::deviceTypes());
 
 // --- Subnets ---------------------------------------------------------------
 $r->add('GET', '/subnets', fn(Request $req) => Subnets::list($req));
@@ -38,6 +37,7 @@ $r->add('GET', '/subnets/{id}', fn(Request $req, array $p) => Subnets::get($p['i
 $r->add('PATCH', '/subnets/{id}', fn(Request $req, array $p) => Subnets::update($req, $p['id']));
 $r->add('DELETE', '/subnets/{id}', fn(Request $req, array $p) => Subnets::delete($p['id']));
 $r->add('GET', '/subnets/{id}/next-ip', fn(Request $req, array $p) => Subnets::nextIp($p['id']));
+$r->add('GET', '/subnets/{id}/map', fn(Request $req, array $p) => Subnets::map($p['id']));
 
 // --- Hosts -----------------------------------------------------------------
 $r->add('GET', '/hosts', fn(Request $req) => Hosts::list($req));
@@ -52,6 +52,12 @@ $r->add('POST', '/interfaces', fn(Request $req) => Interfaces::create($req));
 $r->add('GET', '/interfaces/{id}', fn(Request $req, array $p) => Interfaces::get($p['id']));
 $r->add('PATCH', '/interfaces/{id}', fn(Request $req, array $p) => Interfaces::update($req, $p['id']));
 $r->add('DELETE', '/interfaces/{id}', fn(Request $req, array $p) => Interfaces::delete($p['id']));
+$r->add('POST', '/interfaces/move', fn(Request $req) => Interfaces::bulkMove($req));
+$r->add('POST', '/interfaces/{id}/move', fn(Request $req, array $p) => Interfaces::moveToHost($req, $p['id']));
+$r->add('POST', '/interfaces/{id}/shares', fn(Request $req, array $p) => Interfaces::share($req, $p['id']));
+$r->add('DELETE', '/interfaces/{id}/shares/{hostId}', fn(Request $req, array $p) => Interfaces::unshare($p['id'], $p['hostId']));
+$r->add('POST', '/interfaces/{id}/nat', fn(Request $req, array $p) => Interfaces::addNat($req, $p['id']));
+$r->add('DELETE', '/interfaces/{id}/nat', fn(Request $req, array $p) => Interfaces::deleteNat($p['id']));
 
 // --- DNS records -----------------------------------------------------------
 $r->add('GET', '/dns-records', fn(Request $req) => DnsRecords::list($req));
@@ -94,7 +100,6 @@ $r->add('POST', '/dhcp-pools', fn(Request $req) => DhcpPools::create($req));
 $r->add('GET', '/dhcp-pools/{id}', fn(Request $req, array $p) => DhcpPools::get($p['id']));
 $r->add('PATCH', '/dhcp-pools/{id}', fn(Request $req, array $p) => DhcpPools::update($req, $p['id']));
 $r->add('DELETE', '/dhcp-pools/{id}', fn(Request $req, array $p) => DhcpPools::delete($p['id']));
-$r->add('GET', '/dhcp-options', fn() => DhcpOptions::list());
 $r->add('GET', '/dhcp-entries', fn(Request $req) => DhcpEntries::list($req));
 $r->add('POST', '/dhcp-entries', fn(Request $req) => DhcpEntries::create($req));
 $r->add('GET', '/dhcp-entries/{id}', fn(Request $req, array $p) => DhcpEntries::get($p['id']));
@@ -124,6 +129,40 @@ $r->add('POST', '/domains', fn(Request $req) => Domains::create($req));
 $r->add('GET', '/domains/{id}', fn(Request $req, array $p) => Domains::get($p['id']));
 $r->add('PATCH', '/domains/{id}', fn(Request $req, array $p) => Domains::update($req, $p['id']));
 $r->add('DELETE', '/domains/{id}', fn(Request $req, array $p) => Domains::delete($p['id']));
+$r->add('GET', '/domain-servers', fn(Request $req) => DomainServers::list($req));
+$r->add('POST', '/domain-servers', fn(Request $req) => DomainServers::create($req));
+$r->add('GET', '/domain-servers/{id}', fn(Request $req, array $p) => DomainServers::get($p['id']));
+$r->add('DELETE', '/domain-servers/{id}', fn(Request $req, array $p) => DomainServers::delete($p['id']));
+
+// --- Tags & messages -------------------------------------------------------
+$r->add('GET', '/tags', fn(Request $req) => Tags::list($req));
+$r->add('GET', '/tags/names', fn() => Tags::names());
+$r->add('POST', '/tags', fn(Request $req) => Tags::create($req));
+$r->add('DELETE', '/tags/{id}', fn(Request $req, array $p) => Tags::delete($p['id']));
+$r->add('GET', '/messages', fn(Request $req) => Messages::list($req));
+$r->add('POST', '/messages', fn(Request $req) => Messages::create($req));
+$r->add('GET', '/messages/{id}', fn(Request $req, array $p) => Messages::get($p['id']));
+$r->add('PATCH', '/messages/{id}', fn(Request $req, array $p) => Messages::update($req, $p['id']));
+$r->add('DELETE', '/messages/{id}', fn(Request $req, array $p) => Messages::delete($p['id']));
+
+// --- Config archives & reports ---------------------------------------------
+$r->add('GET', '/configs', fn(Request $req) => Configs::list($req));
+$r->add('POST', '/configs', fn(Request $req) => Configs::create($req));
+$r->add('GET', '/configs/diff', fn(Request $req) => Configs::diff($req));
+$r->add('GET', '/configs/{id}', fn(Request $req, array $p) => Configs::get($p['id']));
+$r->add('DELETE', '/configs/{id}', fn(Request $req, array $p) => Configs::delete($p['id']));
+$r->add('GET', '/reports', fn() => Reports::list());
+$r->add('GET', '/reports/{key}', fn(Request $req, array $p) => Reports::get($p['key']));
+$r->add('POST', '/reports/{key}/run', fn(Request $req, array $p) => Reports::run($req, $p['key']));
+
+// --- Reference data (lookup tables; writes need `advanced`) ---------------
+foreach (array_keys(Reference::RESOURCES) as $res) {
+    $r->add('GET', "/{$res}", fn() => Reference::list($res));
+    $r->add('POST', "/{$res}", fn(Request $req) => Reference::create($res, $req));
+    $r->add('GET', "/{$res}/{id}", fn(Request $req, array $p) => Reference::get($res, $p['id']));
+    $r->add('PATCH', "/{$res}/{id}", fn(Request $req, array $p) => Reference::update($res, $req, $p['id']));
+    $r->add('DELETE', "/{$res}/{id}", fn(Request $req, array $p) => Reference::delete($res, $p['id']));
+}
 
 // --- Admin -----------------------------------------------------------------
 // Reads here need the admin permission too (user_admin / advanced), as in ONA.
@@ -143,5 +182,6 @@ $r->add('POST', '/sys-config', fn(Request $req) => SysConfig::create($req));
 $r->add('GET', '/sys-config/{key}', fn(Request $req, array $p) => SysConfig::get($p['key']));
 $r->add('PATCH', '/sys-config/{key}', fn(Request $req, array $p) => SysConfig::update($req, $p['key']));
 $r->add('DELETE', '/sys-config/{key}', fn(Request $req, array $p) => SysConfig::delete($p['key']));
+$r->add('GET', '/change-log', fn(Request $req) => ChangeLog::list($req));
 $r->add('GET', '/plugins', fn() => Plugins::list());
 $r->add('PATCH', '/plugins/{key}', fn(Request $req, array $p) => Plugins::update($req, $p['key']));

@@ -30,6 +30,20 @@ class Subnets
             $where[] = 's.subnet_type_id = ?';
             $params[] = $type;
         }
+        if (($vlan = $req->queryInt('vlanId')) !== null) {
+            $where[] = 's.vlan_id = ?';
+            $params[] = $vlan;
+        }
+        // ipFrom / ipTo: subnets whose network address is in the range.
+        foreach (Filters::ipRange($req) as [$op, $ip]) {
+            $where[] = "s.ip_addr {$op} CAST(? AS DECIMAL(39,0))";
+            $params[] = $ip;
+        }
+        $tag = $req->queryString('tag');
+        if ($tag !== '') {
+            $where[] = Tags::filter('subnet', 's.id');
+            $params[] = $tag;
+        }
 
         $sql = self::BASE_SQL . ($where ? ' WHERE ' . implode(' AND ', $where) : '');
         $order = Paging::orderBy($req, ['name' => 's.name', 'ip' => 's.ip_addr', 'type' => 't.display_name'], 'ip');
@@ -102,6 +116,47 @@ class Subnets
         return [200, ['ip' => strtolower(trim($out))]];
     }
 
+    /** Largest IPv4 subnet GET /subnets/{id}/map draws (a /20). */
+    public const MAP_MAX = 4096;
+
+    /**
+     * GET /subnets/{id}/map: every address of an IPv4 subnet up to a /20 as
+     * offsets from the network address: used ones with their host, and DHCP
+     * pool ranges. The client draws the grid.
+     */
+    public static function map(int $id): array
+    {
+        $s = self::load($id);
+        if (!Ona::isIpv4($s['ip_addr'])) throw new ApiError(422, 'unsupported', 'The address map is only available for IPv4 subnets');
+        $base = (int)$s['ip_addr'];
+        $size = 0x100000000 - (int)$s['ip_mask'];
+        if ($size > self::MAP_MAX) throw new ApiError(422, 'unsupported', 'The address map is limited to subnets of /20 or smaller');
+        $used = Ona::select('SELECT i.id, i.ip_addr, i.host_id, i.name, d.name AS host_name, d.domain_id
+            FROM interfaces i LEFT JOIN hosts h ON h.id = i.host_id LEFT JOIN dns d ON d.id = h.primary_dns_id
+            WHERE i.subnet_id = ? ORDER BY i.ip_addr', [$id]);
+        $pools = Ona::select('SELECT id, ip_addr_start, ip_addr_end FROM dhcp_pools WHERE subnet_id = ? ORDER BY ip_addr_start', [$id]);
+        return [200, [
+            'subnetId' => (int)$s['id'],
+            'network' => Ona::ipText($s['ip_addr']) . '/' . Ona::cidr($s['ip_mask']),
+            'size' => $size,
+            // /31 and /32 have no network or broadcast address.
+            'reserved' => $size >= 4 ? [0, $size - 1] : [],
+            'used' => array_map(fn($r) => [
+                'offset' => (int)$r['ip_addr'] - $base,
+                'ip' => Ona::ipText($r['ip_addr']),
+                'interfaceId' => (int)$r['id'],
+                'host' => $r['host_id'] ? ['id' => (int)$r['host_id'], 'fqdn' => ($r['host_name'] ? $r['host_name'] . '.' : '') . Ona::domainName($r['domain_id'])] : null,
+            ], $used),
+            'pools' => array_map(fn($p) => [
+                'id' => (int)$p['id'],
+                'start' => Ona::ipText($p['ip_addr_start']),
+                'end' => Ona::ipText($p['ip_addr_end']),
+                'startOffset' => (int)$p['ip_addr_start'] - $base,
+                'endOffset' => (int)$p['ip_addr_end'] - $base,
+            ], $pools),
+        ]];
+    }
+
     /** subnet_add/subnet_modify find a VLAN by number within a campus. */
     private static function vlanOptions(int $vlanId, string $key): array
     {
@@ -140,6 +195,7 @@ class Subnets
             'ipVersion' => $v4 ? 4 : 6,
             'type' => $s['subnet_type_id'] ? ['id' => (int)$s['subnet_type_id'], 'name' => $s['type_name']] : null,
             'usage' => ['used' => (int)$used, 'total' => (string)$total, 'percent' => (int)$percent],
+            'tags' => Tags::namesFor('subnet', (int)$s['id']),
         ];
         if ($detail) {
             $out['vlan'] = null;
@@ -154,6 +210,24 @@ class Subnets
             }
             $out['interfaceCount'] = Ona::count('SELECT id FROM interfaces WHERE subnet_id = ?', [$s['id']]);
             $out['hostCount'] = Ona::count('SELECT DISTINCT host_id FROM interfaces WHERE subnet_id = ?', [$s['id']]);
+        }
+        return $out;
+    }
+}
+
+/** Shared list filters. */
+class Filters
+{
+    /** ?ipFrom=&ipTo= as [operator, numeric] pairs (bounded by the comparison column). */
+    public static function ipRange(Request $req): array
+    {
+        $out = [];
+        foreach (['ipFrom' => '>=', 'ipTo' => '<='] as $key => $op) {
+            $v = $req->queryString($key);
+            if ($v === '') continue;
+            $n = Ona::ipNumeric($v);
+            if ($n === null) throw ApiError::badRequest("{$key} must be an IP address");
+            $out[] = [$op, $n];
         }
         return $out;
     }

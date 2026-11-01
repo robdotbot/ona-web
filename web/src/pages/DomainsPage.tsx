@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
-import { Anchor, Button, Text } from '@mantine/core';
-import { IconPlus } from '@tabler/icons-react';
+import { ActionIcon, Anchor, Badge, Button, Group, Text, Tooltip } from '@mantine/core';
+import { IconPlus, IconServer2, IconX } from '@tabler/icons-react';
 import { createColumnHelper } from '@tanstack/react-table';
 import { Link } from 'react-router-dom';
-import { useCan, useCreateDomain, useDeleteDomain, useDomains, useUpdateDomain } from '../api/hooks';
+import { useAddDomainServer, useCan, useCreateDomain, useDeleteDomain, useDomains, useRemoveDomainServer, useUpdateDomain } from '../api/hooks';
 import type { Domain } from '../api/types';
 import { DataTable } from '../components/DataTable';
 import { EntityForm, idOr, num, openForm, options, pick, type Field } from '../components/EntityForm';
@@ -59,6 +59,76 @@ function DomainForm({ domain }: { domain?: Domain }) {
   );
 }
 
+const ROLE_COLOR = { master: 'blue', slave: 'teal', forward: 'gray' } as const;
+const ROLES = [
+  { value: 'master', label: 'Master' },
+  { value: 'slave', label: 'Slave' },
+  { value: 'forward', label: 'Forward' },
+];
+
+function AddServerForm({ domain }: { domain: Domain }) {
+  const add = useAddDomainServer();
+  return (
+    <EntityForm
+      fields={[
+        { key: 'hostId', label: 'DNS server (host)', kind: 'host', required: true },
+        { key: 'role', label: 'Role', kind: 'select', required: true, data: ROLES },
+      ]}
+      initial={{ hostId: null, role: 'master' }}
+      submitLabel="Assign server"
+      footer={<Text size="xs" c="dimmed">ONA also adds an NS record for the server in {domain.name} if there isn't one.</Text>}
+      onSubmit={async (v) => {
+        await add.mutateAsync({ domainId: domain.id, hostId: Number(v.hostId), role: String(v.role) });
+        notifySuccess(`Server assigned to ${domain.name}`);
+      }}
+    />
+  );
+}
+
+/** The DNS servers of one domain, with remove buttons (writes need `advanced`). */
+function DomainServers({ domain, canEdit }: { domain: Domain; canEdit: boolean }) {
+  const remove = useRemoveDomainServer();
+  return (
+    <Group gap={4} wrap="wrap">
+      {domain.servers.map((a) => (
+        <Badge
+          key={a.id}
+          variant="light"
+          color={ROLE_COLOR[a.role]}
+          tt="none"
+          rightSection={canEdit && (
+            <ActionIcon
+              size="xs"
+              variant="transparent"
+              color={ROLE_COLOR[a.role]}
+              aria-label={`Remove ${a.server.fqdn} from ${domain.name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                confirmDelete({
+                  title: `Remove ${a.server.fqdn} from ${domain.name}?`,
+                  message: 'Its NS record in the domain is deleted too.',
+                  onConfirm: async () => { await remove.mutateAsync(a.id); notifySuccess('Server removed'); },
+                });
+              }}
+            >
+              <IconX size={10} />
+            </ActionIcon>
+          )}
+        >
+          <Anchor component={Link} to={`/hosts/${a.server.id}`} size="xs" c="inherit" onClick={(e) => e.stopPropagation()}>{a.server.fqdn}</Anchor> ({a.role})
+        </Badge>
+      ))}
+      {canEdit && (
+        <Tooltip label="Assign a DNS server">
+          <ActionIcon size="sm" variant="subtle" aria-label={`Assign a DNS server to ${domain.name}`} onClick={() => openForm(`DNS server for ${domain.name}`, <AddServerForm domain={domain} />)}>
+            <IconServer2 size={14} />
+          </ActionIcon>
+        </Tooltip>
+      )}
+    </Group>
+  );
+}
+
 const col = createColumnHelper<Domain>();
 
 export function DomainsPage() {
@@ -72,6 +142,7 @@ export function DomainsPage() {
       col.accessor('recordCount', { header: 'Records' }),
       col.accessor('defaultTtl', { header: 'Default TTL' }),
       col.accessor('primaryMaster', { header: 'Primary master' }),
+      col.display({ id: 'servers', header: 'DNS servers', cell: (c) => <DomainServers domain={c.row.original} canEdit={canEdit} /> }),
       col.display({
         id: 'actions',
         header: '',
@@ -97,7 +168,7 @@ export function DomainsPage() {
     <>
       <PageHeader
         title="Domains"
-        subtitle="DNS domains (forward and reverse); click one to see its records"
+        subtitle="DNS domains (forward and reverse) and the servers that serve them; click one to see its records"
         actions={canEdit && <Button leftSection={<IconPlus size={16} />} onClick={() => openForm('Add domain', <DomainForm />, 'lg')}>Add domain</Button>}
       />
       <DataTable columns={columns} data={domains.data} loading={domains.isFetching} error={domains.error} empty="No domains yet." />

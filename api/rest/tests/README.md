@@ -30,7 +30,7 @@ skipped when run outside the container.
    the session, a legacy-UI guest session does not authenticate the API.
 3. Permissions: `guest` gets 403 `forbidden` (with `details.permission`) on
    every write, and on the admin reads (users, groups, permissions, system
-   configuration, plugins), and nothing changes; a temporary DB user with
+   configuration, plugins, change log, config archives), and nothing changes; a temporary DB user with
    only `subnet_add` can create but not modify or delete a subnet.
 4. CSRF: missing, wrong, empty and other-session tokens → 403 `csrf_failed`.
 5. CRUD lifecycles for subnets (list/q/pagination/sort, next-ip, usage),
@@ -41,7 +41,19 @@ skipped when run outside the container.
    type in use), locations (longitude workaround, in use by a host), domains
    (child domain, parent kept on SOA changes, in use), users and groups
    (logging in as the new user, password change, can't delete yourself),
-   system configuration (protected entries) and plugins.
+   system configuration (protected entries) and plugins. The reference
+   data tables (manufacturers, models, roles, device types, subnet types,
+   DHCP option definitions, config types, DNS views: in use and built-in
+   rows), changing your own password, DNS records turned off and on (and
+   staying off through other edits, scheduled start dates, DNS views), DNS
+   server assignments with their NS records, interface sharing, NAT
+   addresses, moving an interface to another host and bulk moves (preview
+   and commit), tags and the `tag` list filter, messages (expiry), the
+   change log (with `log_to_db` switched on for the test), config archives
+   (exact text with `=`/`&`, diff), reports (usage, text runs, HTML and
+   reserved parameters refused), the subnet address map and the advanced
+   host/subnet list filters. The NAT test creates `10.in-addr.arpa` if it is
+   missing, since ONA always adds a PTR for the NAT address.
 6. Errors: 404, 409 conflict, 422 with `details.fields`, 400, 415, 405
    (with `Allow`).
 7. Search by IP, host name and subnet name (`bestMatch`).

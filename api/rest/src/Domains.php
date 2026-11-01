@@ -133,6 +133,98 @@ class Domains
             'defaultTtl' => (int)$d['default_ttl'],
         ];
         if (isset($d['record_count'])) $out['recordCount'] = (int)$d['record_count'];
+        $out['servers'] = array_map(fn($a) => ['id' => $a['id'], 'server' => $a['server'], 'role' => $a['role']], DomainServers::forDomain((int)$d['id']));
         return $out;
+    }
+}
+
+/**
+ * Which DNS servers serve which domains (dns_server_domains), through the
+ * domain_server_add / domain_server_del modules (`advanced`).
+ */
+class DomainServers
+{
+    public const ROLES = ['master', 'slave', 'forward'];
+
+    private const BASE_SQL = 'SELECT sd.*, d.name AS host_name, d.domain_id AS host_domain_id
+        FROM dns_server_domains sd
+        LEFT JOIN hosts h ON h.id = sd.host_id
+        LEFT JOIN dns d ON d.id = h.primary_dns_id';
+
+    /** GET /domain-servers?domainId=&hostId= (unpaginated). */
+    public static function list(Request $req): array
+    {
+        $where = [];
+        $params = [];
+        if (($d = $req->queryInt('domainId')) !== null) { $where[] = 'sd.domain_id = ?'; $params[] = $d; }
+        if (($h = $req->queryInt('hostId')) !== null) { $where[] = 'sd.host_id = ?'; $params[] = $h; }
+        $rows = Ona::select(self::BASE_SQL . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . ' ORDER BY sd.domain_id, d.name', $params);
+        return [200, ['data' => array_map([self::class, 'format'], $rows)]];
+    }
+
+    /** Assignments for one domain, for embedding in Domains::format(). */
+    public static function forDomain(int $domainId): array
+    {
+        return array_map([self::class, 'format'], Ona::select(self::BASE_SQL . ' WHERE sd.domain_id = ? ORDER BY d.name', [$domainId]));
+    }
+
+    public static function load(int $id): array
+    {
+        $rows = Ona::select(self::BASE_SQL . ' WHERE sd.id = ?', [$id]);
+        if (!$rows) throw ApiError::notFound('DNS server assignment');
+        return $rows[0];
+    }
+
+    public static function get(int $id): array
+    {
+        return [200, self::format(self::load($id))];
+    }
+
+    /** POST /domain-servers {domainId, hostId, role}: also adds the NS record if missing. */
+    public static function create(Request $req): array
+    {
+        Auth::requirePerm('advanced');
+        $in = new Input($req->body());
+        $domainId = $in->int('domainId', true, 1);
+        $hostId = $in->int('hostId', true, 1);
+        $role = strtolower((string)$in->string('role', false, 10)) ?: 'master';
+        if (!in_array($role, self::ROLES, true)) $in->error('role', 'must be one of ' . implode(', ', self::ROLES));
+        $in->check();
+        Domains::load($domainId);
+        $host = Hosts::load($hostId);
+        if (Ona::select('SELECT id FROM dns_server_domains WHERE domain_id = ? AND host_id = ?', [$domainId, $hostId])) {
+            throw new ApiError(409, 'conflict', 'This server is already assigned to the domain');
+        }
+        // The module finds the server by DNS name and uses it as the NS
+        // record's target, so pass the host's FQDN (not an ID).
+        $fqdn = ($host['name'] ? $host['name'] . '.' : '') . Ona::domainName($host['domain_id']);
+        // ona_find_domain() in the module doesn't take IDs; send the name.
+        Ona::run('domain_server_add', ['domain' => Ona::domainName($domainId), 'server' => $fqdn, 'role' => $role], ['advanced']);
+        $rows = Ona::select('SELECT id FROM dns_server_domains WHERE domain_id = ? AND host_id = ?', [$domainId, $hostId]);
+        if (!$rows) throw new ApiError(500, 'internal_error', 'The assignment was added but could not be read back');
+        return [201, self::get((int)$rows[0]['id'])[1]];
+    }
+
+    /** DELETE /domain-servers/{id}: also deletes the server's NS record in the domain. */
+    public static function delete(int $id): array
+    {
+        Auth::requirePerm('advanced');
+        $a = self::load($id);
+        Ona::run('domain_server_del', ['domain' => (int)$a['domain_id'], 'server' => (int)$a['host_id'], 'commit' => 'Y'], ['advanced']);
+        return [204, null];
+    }
+
+    public static function format(array $r): array
+    {
+        return [
+            'id' => (int)$r['id'],
+            'domain' => ['id' => (int)$r['domain_id'], 'name' => Ona::domainName($r['domain_id'])],
+            'server' => [
+                'id' => (int)$r['host_id'],
+                'fqdn' => ($r['host_name'] ? $r['host_name'] . '.' : '') . Ona::domainName($r['host_domain_id']),
+            ],
+            'role' => (string)$r['role'],
+            'rebuildPending' => (bool)$r['rebuild_flag'],
+        ];
     }
 }

@@ -235,7 +235,7 @@ function makeSubnet(string $suffix, ?string $net = null): array
 /** Create a host as admin and register its deletion. */
 function makeHost(string $suffix, string $ip, array $extra = []): array
 {
-    $h = admin()->ok('POST', '/hosts', ['name' => name($suffix) . '.example.com', 'deviceTypeId' => 1, 'ip' => $ip] + $extra, 201);
+    $h = admin()->ok('POST', '/hosts', $extra + ['name' => name($suffix) . '.example.com', 'deviceTypeId' => 1, 'ip' => $ip], 201);
     onCleanup(fn() => deleteIfExists("/hosts/{$h['id']}"));
     return $h;
 }
@@ -272,18 +272,31 @@ const PUBLIC_ROUTES = [
     ['POST', '/auth/logout'],
 ];
 
+const REFERENCE_RESOURCES = ['manufacturers', 'models', 'roles', 'device-types', 'subnet-types', 'dhcp-options', 'config-types', 'dns-views'];
+const REFERENCE_ROUTES = [
+    ['GET', '/manufacturers'], ['POST', '/manufacturers'], ['GET', '/manufacturers/{id}'], ['PATCH', '/manufacturers/{id}'], ['DELETE', '/manufacturers/{id}'],
+    ['GET', '/models'], ['POST', '/models'], ['GET', '/models/{id}'], ['PATCH', '/models/{id}'], ['DELETE', '/models/{id}'],
+    ['GET', '/roles'], ['POST', '/roles'], ['GET', '/roles/{id}'], ['PATCH', '/roles/{id}'], ['DELETE', '/roles/{id}'],
+    ['GET', '/device-types'], ['POST', '/device-types'], ['GET', '/device-types/{id}'], ['PATCH', '/device-types/{id}'], ['DELETE', '/device-types/{id}'],
+    ['GET', '/subnet-types'], ['POST', '/subnet-types'], ['GET', '/subnet-types/{id}'], ['PATCH', '/subnet-types/{id}'], ['DELETE', '/subnet-types/{id}'],
+    ['GET', '/dhcp-options'], ['POST', '/dhcp-options'], ['GET', '/dhcp-options/{id}'], ['PATCH', '/dhcp-options/{id}'], ['DELETE', '/dhcp-options/{id}'],
+    ['GET', '/config-types'], ['POST', '/config-types'], ['GET', '/config-types/{id}'], ['PATCH', '/config-types/{id}'], ['DELETE', '/config-types/{id}'],
+    ['GET', '/dns-views'], ['POST', '/dns-views'], ['GET', '/dns-views/{id}'], ['PATCH', '/dns-views/{id}'], ['DELETE', '/dns-views/{id}'],
+];
+
 const PROTECTED_ROUTES = [
-    ['GET', '/auth/session'],
+    ['GET', '/auth/session'], ['POST', '/auth/password'],
     ['GET', '/search'],
-    ['GET', '/subnet-types'],
-    ['GET', '/device-types'],
     ['GET', '/subnets'], ['POST', '/subnets'],
     ['GET', '/subnets/{id}'], ['PATCH', '/subnets/{id}'], ['DELETE', '/subnets/{id}'],
-    ['GET', '/subnets/{id}/next-ip'],
+    ['GET', '/subnets/{id}/next-ip'], ['GET', '/subnets/{id}/map'],
     ['GET', '/hosts'], ['POST', '/hosts'],
     ['GET', '/hosts/{id}'], ['PATCH', '/hosts/{id}'], ['DELETE', '/hosts/{id}'],
     ['GET', '/interfaces'], ['POST', '/interfaces'],
     ['GET', '/interfaces/{id}'], ['PATCH', '/interfaces/{id}'], ['DELETE', '/interfaces/{id}'],
+    ['POST', '/interfaces/move'], ['POST', '/interfaces/{id}/move'],
+    ['POST', '/interfaces/{id}/shares'], ['DELETE', '/interfaces/{id}/shares/{hostId}'],
+    ['POST', '/interfaces/{id}/nat'], ['DELETE', '/interfaces/{id}/nat'],
     ['GET', '/dns-records'], ['POST', '/dns-records'],
     ['GET', '/dns-records/{id}'], ['PATCH', '/dns-records/{id}'], ['DELETE', '/dns-records/{id}'],
     ['GET', '/vlan-campuses'], ['POST', '/vlan-campuses'],
@@ -298,7 +311,6 @@ const PROTECTED_ROUTES = [
     ['GET', '/dhcp-failover-groups/{id}'], ['PATCH', '/dhcp-failover-groups/{id}'], ['DELETE', '/dhcp-failover-groups/{id}'],
     ['GET', '/dhcp-pools'], ['POST', '/dhcp-pools'],
     ['GET', '/dhcp-pools/{id}'], ['PATCH', '/dhcp-pools/{id}'], ['DELETE', '/dhcp-pools/{id}'],
-    ['GET', '/dhcp-options'],
     ['GET', '/dhcp-entries'], ['POST', '/dhcp-entries'],
     ['GET', '/dhcp-entries/{id}'], ['PATCH', '/dhcp-entries/{id}'], ['DELETE', '/dhcp-entries/{id}'],
     ['GET', '/custom-attribute-types'], ['POST', '/custom-attribute-types'],
@@ -309,6 +321,16 @@ const PROTECTED_ROUTES = [
     ['GET', '/locations/{id}'], ['PATCH', '/locations/{id}'], ['DELETE', '/locations/{id}'],
     ['GET', '/domains'], ['POST', '/domains'],
     ['GET', '/domains/{id}'], ['PATCH', '/domains/{id}'], ['DELETE', '/domains/{id}'],
+    ['GET', '/domain-servers'], ['POST', '/domain-servers'],
+    ['GET', '/domain-servers/{id}'], ['DELETE', '/domain-servers/{id}'],
+    ['GET', '/tags'], ['GET', '/tags/names'], ['POST', '/tags'], ['DELETE', '/tags/{id}'],
+    ['GET', '/messages'], ['POST', '/messages'],
+    ['GET', '/messages/{id}'], ['PATCH', '/messages/{id}'], ['DELETE', '/messages/{id}'],
+    ['GET', '/configs'], ['POST', '/configs'], ['GET', '/configs/diff'],
+    ['GET', '/configs/{id}'], ['DELETE', '/configs/{id}'],
+    ['GET', '/reports'], ['GET', '/reports/{key}'], ['POST', '/reports/{key}/run'],
+    ['GET', '/change-log'],
+    ...REFERENCE_ROUTES,
     ['GET', '/users'], ['POST', '/users'],
     ['GET', '/users/{id}'], ['PATCH', '/users/{id}'], ['DELETE', '/users/{id}'],
     ['GET', '/groups'], ['POST', '/groups'],
@@ -904,6 +926,14 @@ test('search: by IP, host name and subnet name', function () {
 // 7b. VLANs, blocks, DHCP, custom attributes, locations, domains, admin
 // ===========================================================================
 
+/** Make sure 10.in-addr.arpa exists (needed for PTR records in 10.x), deleting it afterwards if we added it. */
+function ensureReverseZone(): void
+{
+    foreach (admin()->get('/domains')->json['data'] as $d) if ($d['name'] === '10.in-addr.arpa') return;
+    $d = admin()->ok('POST', '/domains', ['name' => '10.in-addr.arpa'], 201);
+    onCleanup(fn() => deleteIfExists("/domains/{$d['id']}"));
+}
+
 /** Create a VLAN campus as admin and register its deletion. */
 function makeCampus(string $suffix): array
 {
@@ -1249,6 +1279,451 @@ test('admin: sys-config create, validate, patch, protected entries, delete; plug
     expectStatus($r, 200, null, 'toggle plugin');
     eq(!$p['enabled'], $r->json['enabled'], 'toggled');
     expectStatus($a->patch("/plugins/{$p['name']}", ['enabled' => $p['enabled']]), 200, null, 'toggle back');
+});
+
+// ===========================================================================
+// 7b. Features added for the classic-UI parity work
+// ===========================================================================
+
+test('guest: reference data, DNS servers, interfaces, tags, messages, configs, logs are 403', function () {
+    $net = freeNet();
+    makeSubnet('g2', $net);
+    $h = makeHost('g2-h', "{$net}.10");
+    $iface = $h['interfaces'][0];
+    $g = (new Client($GLOBALS['BASE'], 'guest'))->mustLogin(GUEST_USER, GUEST_PASS);
+    $cases = [
+        ['POST', '/manufacturers', ['name' => name('g-man')], 'advanced'],
+        ['PATCH', '/roles/1', ['name' => name('g-role')], 'advanced'],
+        ['DELETE', '/config-types/1', null, 'advanced'],
+        ['POST', '/dns-views', ['name' => name('g-view')], 'advanced'],
+        ['PATCH', "/dns-records/{$h['primaryDnsId']}", ['enabled' => false], 'host_modify'],
+        ['POST', '/domain-servers', ['domainId' => $h['domain']['id'], 'hostId' => $h['id']], 'advanced'],
+        ['POST', "/interfaces/{$iface['id']}/move", ['hostId' => $h['id']], 'advanced'],
+        ['POST', "/interfaces/{$iface['id']}/shares", ['hostId' => $h['id']], 'interface_del'],
+        ['DELETE', "/interfaces/{$iface['id']}/shares/{$h['id']}", null, 'interface_del'],
+        ['POST', "/interfaces/{$iface['id']}/nat", ['ip' => "{$net}.99"], 'interface_modify'],
+        ['DELETE', "/interfaces/{$iface['id']}/nat", null, 'interface_modify'],
+        ['POST', '/interfaces/move', ['start' => "{$net}.10", 'newStart' => "{$net}.20"], 'interface_modify'],
+        ['POST', '/tags', ['name' => 'gtag', 'hostId' => $h['id']], 'host_add'],
+        ['POST', '/tags', ['name' => 'gtag', 'subnetId' => 1], 'subnet_add'],
+        ['POST', '/messages', ['hostId' => $h['id'], 'message' => 'guest'], 'advanced'],
+        ['PATCH', '/messages/1', ['priority' => 1], 'advanced'],
+        ['DELETE', '/messages/1', null, 'advanced'],
+        ['GET', '/configs', null, 'host_config_admin'],
+        ['POST', '/configs', ['hostId' => $h['id'], 'typeId' => 1, 'text' => 'x'], 'host_config_admin'],
+        ['GET', '/configs/diff?from=1&to=2', null, 'host_config_admin'],
+        ['GET', '/change-log', null, 'advanced'],
+    ];
+    $bad = [];
+    foreach ($cases as [$m, $p, $body, $perm]) {
+        $r = $g->req($m, $p, $body);
+        if ($r->status !== 403 || $r->code() !== 'forbidden' || ($r->json['error']['details']['permission'] ?? null) !== $perm) {
+            $bad[] = "{$m} {$p}: expected 403 forbidden/{$perm}, got " . $r->summary();
+        }
+    }
+    check(!$bad, implode("\n      ", $bad));
+    $a = admin();
+    eq([], $a->get("/tags?hostId={$h['id']}")->json['data'], 'no guest tag');
+    eq([], $a->get("/messages?hostId={$h['id']}")->json['data'], 'no guest message');
+    eq(true, $a->get("/dns-records/{$h['primaryDnsId']}")->json['enabled'], 'record still enabled');
+    // Reads that any logged-in user may make.
+    expectStatus($g->get('/dns-views'), 200, null, 'guest reads DNS views');
+    expectStatus($g->get('/reports'), 200, null, 'guest lists reports');
+});
+
+test('reference data: CRUD for every lookup table, in-use and built-in rows are 409', function () {
+    $a = admin();
+    foreach (REFERENCE_RESOURCES as $res) expectStatus($a->get("/{$res}"), 200, null, "list {$res}");
+
+    $man = $a->ok('POST', '/manufacturers', ['name' => name('man')], 201);
+    onCleanup(fn() => deleteIfExists("/manufacturers/{$man['id']}"));
+    expectStatus($a->post('/manufacturers', ['name' => name('man')]), 409, 'conflict', 'duplicate manufacturer');
+    $model = $a->ok('POST', '/models', ['name' => name('model'), 'manufacturerId' => $man['id'], 'snmpSysObjectId' => '1.3.6.1.4.1.9'], 201);
+    onCleanup(fn() => deleteIfExists("/models/{$model['id']}"));
+    expectStatus($a->post('/models', ['name' => 'x', 'manufacturerId' => 999999]), 422, 'validation_failed', 'unknown manufacturer');
+    $role = $a->ok('POST', '/roles', ['name' => name('role')], 201);
+    onCleanup(fn() => deleteIfExists("/roles/{$role['id']}"));
+    $dt = $a->ok('POST', '/device-types', ['modelId' => $model['id'], 'roleId' => $role['id']], 201);
+    onCleanup(fn() => deleteIfExists("/device-types/{$dt['id']}"));
+    eq(name('model'), $dt['model'], 'device type model');
+    eq(name('role'), $dt['role'], 'device type role');
+    eq(1, $a->get("/models/{$model['id']}")->json['inUse'], 'model in use by the device type');
+    expectStatus($a->delete("/models/{$model['id']}"), 409, 'conflict', 'model in use');
+    $model = $a->ok('PATCH', "/models/{$model['id']}", ['name' => name('model2')], 200);
+    eq(name('model2'), $model['name'], 'renamed model');
+
+    // A host using the new device type blocks its delete.
+    $net = freeNet();
+    makeSubnet('ref', $net);
+    $h = makeHost('ref-h', "{$net}.10", ['deviceTypeId' => $dt['id']]);
+    expectStatus($a->delete("/device-types/{$dt['id']}"), 409, 'conflict', 'device type in use');
+    $hosts = $a->get("/hosts?deviceTypeId={$dt['id']}")->json;
+    eq([$h['id']], array_column($hosts['data'], 'id'), 'hosts filtered by device type');
+    expectStatus($a->delete("/hosts/{$h['id']}"), 204, null, 'delete host');
+    foreach (["/device-types/{$dt['id']}", "/models/{$model['id']}", "/roles/{$role['id']}", "/manufacturers/{$man['id']}"] as $p) {
+        expectStatus($a->delete($p), 204, null, "delete {$p}");
+    }
+
+    $st = $a->ok('POST', '/subnet-types', ['name' => name('st'), 'shortName' => 'RT' . $GLOBALS['RUN'], 'notes' => 'n'], 201);
+    onCleanup(fn() => deleteIfExists("/subnet-types/{$st['id']}"));
+    eq(strtolower('RT' . $GLOBALS['RUN']), $st['shortName'], 'short name lower-cased');
+    expectStatus($a->post('/subnet-types', ['name' => 'x', 'shortName' => 'bad name']), 422, 'validation_failed', 'bad short name');
+    expectStatus($a->delete("/subnet-types/{$st['id']}"), 204, null, 'delete subnet type');
+
+    $opt = $a->ok('POST', '/dhcp-options', ['name' => 'rt-' . $GLOBALS['RUN'], 'displayName' => 'Rest test', 'number' => 224, 'type' => 'S'], 201);
+    onCleanup(fn() => deleteIfExists("/dhcp-options/{$opt['id']}"));
+    eq(false, $opt['system'], 'custom option');
+    $opt = $a->ok('PATCH', "/dhcp-options/{$opt['id']}", ['type' => 'N'], 200);
+    eq('N', $opt['type'], 'patched type');
+    $builtin = null;
+    foreach ($a->get('/dhcp-options')->json['data'] as $o) if ($o['system']) $builtin = $o;
+    if ($builtin) expectStatus($a->patch("/dhcp-options/{$builtin['id']}", ['displayName' => 'x']), 409, 'conflict', 'built-in option');
+    expectStatus($a->delete("/dhcp-options/{$opt['id']}"), 204, null, 'delete option');
+
+    $ct = $a->ok('POST', '/config-types', ['name' => strtoupper(name('ct'))], 201);
+    onCleanup(fn() => deleteIfExists("/config-types/{$ct['id']}"));
+    expectStatus($a->delete("/config-types/{$ct['id']}"), 204, null, 'delete config type');
+
+    $v = $a->ok('POST', '/dns-views', ['name' => name('view one'), 'description' => 'test view'], 201);
+    onCleanup(fn() => deleteIfExists("/dns-views/{$v['id']}"));
+    eq(strtoupper(name('view-one')), $v['name'], 'view name normalised');
+    expectStatus($a->patch('/dns-views/0', ['description' => 'x']), 409, 'conflict', 'default view');
+    expectStatus($a->delete('/dns-views/0'), 409, 'conflict', 'default view delete');
+    expectStatus($a->delete("/dns-views/{$v['id']}"), 204, null, 'delete view');
+    expectStatus($a->patch('/roles/999999', ['name' => 'x']), 404, 'not_found', 'missing role');
+});
+
+test('account: change own password', function () {
+    $a = admin();
+    $user = 'resttest_p' . $GLOBALS['RUN'];
+    $pass = bin2hex(random_bytes(6));
+    $u = $a->ok('POST', '/users', ['username' => $user, 'password' => $pass], 201);
+    onCleanup(fn() => deleteIfExists("/users/{$u['id']}"));
+    $c = (new Client($GLOBALS['BASE'], 'pw-user'))->mustLogin($user, $pass);
+    expectStatus($c->post('/auth/password', ['currentPassword' => 'wrong', 'newPassword' => 'abc']), 422, 'validation_failed', 'wrong current');
+    expectStatus($c->post('/auth/password', ['currentPassword' => $pass]), 422, 'validation_failed', 'missing new');
+    expectStatus($c->post('/auth/password', ['currentPassword' => $pass, 'newPassword' => $pass]), 422, 'validation_failed', 'same password');
+    expectStatus($c->req('POST', '/auth/password', ['currentPassword' => $pass, 'newPassword' => 'x'], [], false), 403, 'csrf_failed', 'no csrf');
+    $new = bin2hex(random_bytes(6));
+    expectStatus($c->post('/auth/password', ['currentPassword' => $pass, 'newPassword' => $new]), 204, null, 'change');
+    expectStatus((new Client($GLOBALS['BASE']))->login($user, $pass), 401, 'unauthorized', 'old password');
+    expectStatus((new Client($GLOBALS['BASE']))->login($user, $new), 200, null, 'new password');
+});
+
+test('dns records: disable/enable, scheduled start, editing keeps disabled, views', function () {
+    $a = admin();
+    $net = freeNet();
+    makeSubnet('dnsen', $net);
+    $h = makeHost('dnsen-h', "{$net}.10");
+    $primary = $a->get("/dns-records/{$h['primaryDnsId']}")->json;
+    eq(true, $primary['enabled'], 'new A record enabled');
+    eq(0, $primary['view']['id'], 'default view');
+
+    $cn = $a->ok('POST', '/dns-records', ['type' => 'CNAME', 'name' => name('dnsen-cn') . '.example.com', 'pointsTo' => $h['fqdn'], 'enabled' => false], 201);
+    onCleanup(fn() => deleteIfExists("/dns-records/{$cn['id']}"));
+    eq(false, $cn['enabled'], 'created disabled');
+    eq(null, $cn['activeFrom'], 'no active date when disabled');
+    $cn = $a->ok('PATCH', "/dns-records/{$cn['id']}", ['ttl' => 1234], 200);
+    eq(1234, $cn['ttl'], 'ttl changed');
+    eq(false, $cn['enabled'], 'still disabled after an unrelated edit');
+    $ids = array_column($a->get('/dns-records?enabled=false&perPage=200&q=' . name('dnsen-cn'))->json['data'], 'id');
+    check(in_array($cn['id'], $ids, true), 'listed with enabled=false');
+    $cn = $a->ok('PATCH', "/dns-records/{$cn['id']}", ['enabled' => true], 200);
+    eq(true, $cn['enabled'], 're-enabled');
+    $cn = $a->ok('PATCH', "/dns-records/{$cn['id']}", ['enabled' => true], 200);
+    eq(true, $cn['enabled'], 'enabling an enabled record is a no-op');
+    $ids = array_column($a->get('/dns-records?enabled=false&perPage=200&q=' . name('dnsen-cn'))->json['data'], 'id');
+    check(!in_array($cn['id'], $ids, true), 'not listed with enabled=false');
+
+    $future = date('Y-m-d H:i:s', time() + 86400 * 30);
+    $cn = $a->ok('PATCH', "/dns-records/{$cn['id']}", ['activeFrom' => $future], 200);
+    eq(false, $cn['enabled'], 'scheduled record not active yet');
+    eq(strtotime($future), strtotime((string)$cn['activeFrom']), 'activeFrom kept');
+    $cn = $a->ok('PATCH', "/dns-records/{$cn['id']}", ['notes' => 'later'], 200);
+    check(abs(strtotime((string)$cn['activeFrom']) - strtotime($future)) <= 1, 'scheduled date survives an edit: ' . $cn['activeFrom']);
+    $cn = $a->ok('PATCH', "/dns-records/{$cn['id']}", ['enabled' => false], 200);
+    eq(false, $cn['enabled'], 'disabled');
+    eq(null, $cn['activeFrom'], 'disabled has no date');
+    expectStatus($a->patch("/dns-records/{$cn['id']}", ['activeFrom' => 'tomorrow']), 422, 'validation_failed', 'bad date');
+    expectStatus($a->patch("/dns-records/{$cn['id']}", ['enabled' => 'no']), 422, 'validation_failed', 'non-boolean');
+
+    // Views: a parent record moves with its children.
+    $v = $a->ok('POST', '/dns-views', ['name' => name('v')], 201);
+    onCleanup(fn() => deleteIfExists("/dns-views/{$v['id']}"));
+    $txt = $a->ok('POST', '/dns-records', ['type' => 'TXT', 'name' => name('dnsen-txt') . '.example.com', 'txt' => 'v=1', 'viewId' => $v['id']], 201);
+    onCleanup(fn() => deleteIfExists("/dns-records/{$txt['id']}"));
+    eq($v['id'], $txt['view']['id'], 'created in view');
+    eq(strtoupper(name('v')), $txt['view']['name'], 'view name');
+    $txt = $a->ok('PATCH', "/dns-records/{$txt['id']}", ['viewId' => 0], 200);
+    eq(0, $txt['view']['id'], 'moved back to the default view');
+    expectStatus($a->patch("/dns-records/{$txt['id']}", ['viewId' => 999999]), 404, 'not_found', 'unknown view');
+    expectStatus($a->patch("/dns-records/{$cn['id']}", ['viewId' => $v['id']]), 422, 'module_error', 'child record cannot change view');
+    eq(0, $a->get("/dns-views/{$v['id']}")->json['inUse'], 'view not in use any more');
+});
+
+test('domain servers: assign master, NS record, duplicate, list, delete', function () {
+    $a = admin();
+    $parent = null;
+    foreach ($a->get('/domains')->json['data'] as $d) if ($d['name'] === 'example.com') $parent = $d;
+    if (!$parent) skip('no example.com domain');
+    $dom = $a->ok('POST', '/domains', ['name' => name('ds'), 'parentId' => $parent['id']], 201);
+    onCleanup(fn() => deleteIfExists("/domains/{$dom['id']}"));
+    $net = freeNet();
+    makeSubnet('ds', $net);
+    $h = makeHost('ds-ns', "{$net}.10");
+    $as = $a->ok('POST', '/domain-servers', ['domainId' => $dom['id'], 'hostId' => $h['id'], 'role' => 'slave'], 201);
+    onCleanup(fn() => deleteIfExists("/domain-servers/{$as['id']}"));
+    eq('slave', $as['role'], 'role');
+    eq($h['fqdn'], $as['server']['fqdn'], 'server');
+    eq($dom['name'], $as['domain']['name'], 'domain');
+    expectStatus($a->post('/domain-servers', ['domainId' => $dom['id'], 'hostId' => $h['id']]), 409, 'conflict', 'duplicate');
+    expectStatus($a->post('/domain-servers', ['domainId' => $dom['id'], 'hostId' => $h['id'], 'role' => 'boss']), 422, 'validation_failed', 'bad role');
+    eq([$as['id']], array_column($a->get("/domain-servers?domainId={$dom['id']}")->json['data'], 'id'), 'list by domain');
+    eq([$as['id']], array_column($a->get("/domains/{$dom['id']}")->json['servers'], 'id'), 'servers on the domain');
+    $ns = $a->get("/dns-records?type=NS&domainId={$dom['id']}")->json['data'];
+    eq(1, count($ns), 'NS record added');
+    eq($h['fqdn'], $ns[0]['pointsTo']['fqdn'] ?? null, 'NS target');
+    expectStatus($a->delete("/domain-servers/{$as['id']}"), 204, null, 'delete');
+    eq(0, $a->get("/dns-records?type=NS&domainId={$dom['id']}")->json['meta']['total'], 'NS record removed');
+    expectStatus($a->get("/domain-servers/{$as['id']}"), 404, 'not_found', 'gone');
+});
+
+test('interfaces: share, NAT, move to another host, bulk move between subnets', function () {
+    $a = admin();
+    $net = freeNet();
+    $net2 = freeNet();
+    makeSubnet('if1', $net);
+    makeSubnet('if2', $net2);
+    $h1 = makeHost('if-a', "{$net}.10");
+    $h2 = makeHost('if-b', "{$net}.11");
+    $vip = $a->ok('POST', '/interfaces', ['hostId' => $h1['id'], 'ip' => "{$net}.20", 'name' => 'vip'], 201);
+
+    // Share the VIP with the second host.
+    $i = $a->ok('POST', "/interfaces/{$vip['id']}/shares", ['hostId' => $h2['id'], 'name' => 'carp0'], 201);
+    eq([['hostId' => $h2['id'], 'fqdn' => $h2['fqdn'], 'name' => 'carp0']], $i['sharedWith'], 'shared with');
+    expectStatus($a->post("/interfaces/{$vip['id']}/shares", ['hostId' => $h2['id']]), 409, 'conflict', 'duplicate share');
+    expectStatus($a->post("/interfaces/{$vip['id']}/shares", ['hostId' => $h1['id']]), 422, 'validation_failed', 'own host');
+    $d2 = $a->get("/hosts/{$h2['id']}")->json;
+    eq([$vip['id']], array_column($d2['sharedInterfaces'], 'id'), 'shared interface on host 2');
+    expectStatus($a->delete("/interfaces/{$vip['id']}/shares/{$h2['id']}"), 204, null, 'unshare');
+    expectStatus($a->delete("/interfaces/{$vip['id']}/shares/{$h2['id']}"), 404, 'not_found', 'unshare again');
+
+    // NAT: an external address on another subnet. nat_add always adds a
+    // PTR record, which needs a reverse zone.
+    ensureReverseZone();
+    $i = $a->ok('POST', "/interfaces/{$vip['id']}/nat", ['ip' => "{$net2}.50"], 201);
+    check($i['natInterfaceId'] !== null, 'nat interface id set');
+    $nat = $a->get("/interfaces/{$i['natInterfaceId']}")->json;
+    eq("{$net2}.50", $nat['ip'], 'nat ip');
+    eq($h1['id'], $nat['host']['id'], 'nat interface on the same host');
+    expectStatus($a->post("/interfaces/{$vip['id']}/nat", ['ip' => "{$net2}.51"]), 409, 'conflict', 'second nat');
+    expectStatus($a->delete("/interfaces/{$vip['id']}/nat"), 204, null, 'delete nat');
+    expectStatus($a->get("/interfaces/{$nat['id']}"), 404, 'not_found', 'nat interface gone');
+    eq(null, $a->get("/interfaces/{$vip['id']}")->json['natInterfaceId'], 'nat cleared');
+    expectStatus($a->delete("/interfaces/{$vip['id']}/nat"), 404, 'not_found', 'no nat');
+
+    // Move the VIP to host 2; the primary interface can't move.
+    $i = $a->ok('POST', "/interfaces/{$vip['id']}/move", ['hostId' => $h2['id']], 200);
+    eq($h2['id'], $i['host']['id'], 'moved');
+    expectStatus($a->post("/interfaces/{$h1['primaryInterfaceId']}/move", ['hostId' => $h2['id']]), 422, 'module_error', 'primary interface');
+
+    // Bulk move .10-.20 to the second subnet: preview, then commit.
+    $p = $a->ok('POST', '/interfaces/move', ['start' => "{$net}.10", 'end' => "{$net}.20", 'newStart' => "{$net2}.100", 'newEnd' => "{$net2}.120"], 200);
+    eq(false, $p['committed'], 'preview');
+    eq(3, count($p['moves']), 'three interfaces would move: ' . json_encode($p));
+    eq("{$net}.10", $p['moves'][0]['from'], 'first from');
+    eq("{$net2}.100", $p['moves'][0]['to'], 'first to');
+    eq("{$net}.10", $a->get("/interfaces/{$h1['primaryInterfaceId']}")->json['ip'], 'preview moved nothing');
+    $p = $a->ok('POST', '/interfaces/move', ['start' => "{$net}.10", 'end' => "{$net}.20", 'newStart' => "{$net2}.100", 'newEnd' => "{$net2}.120", 'commit' => true], 200);
+    eq(true, $p['committed'], 'committed');
+    $moved = $a->get("/interfaces/{$h1['primaryInterfaceId']}")->json;
+    eq("{$net2}.100", $moved['ip'], 'moved address');
+    eq(strtoupper(name('if2')), $moved['subnet']['name'], 'moved subnet');
+    expectStatus($a->post('/interfaces/move', ['start' => "{$net}.10", 'newStart' => "{$net2}.130"]), 422, 'module_error', 'nothing left to move');
+    expectStatus($a->post('/interfaces/move', ['start' => 'fe80::1', 'newStart' => "{$net2}.1"]), 422, 'validation_failed', 'ipv6');
+});
+
+test('tags: on hosts and subnets, duplicates, names, list filters, delete', function () {
+    $a = admin();
+    $net = freeNet();
+    $s = makeSubnet('tag', $net);
+    $h = makeHost('tag-h', "{$net}.10");
+    $tagName = 'rt-' . $GLOBALS['RUN'];
+    $t = $a->ok('POST', '/tags', ['name' => $tagName, 'hostId' => $h['id']], 201);
+    onCleanup(fn() => deleteIfExists("/tags/{$t['id']}"));
+    eq(['kind' => 'host', 'id' => $h['id']], $t['target'], 'target');
+    expectStatus($a->post('/tags', ['name' => $tagName, 'hostId' => $h['id']]), 409, 'conflict', 'duplicate');
+    expectStatus($a->post('/tags', ['name' => 'bad<tag>', 'hostId' => $h['id']]), 422, 'validation_failed', 'bad name');
+    expectStatus($a->post('/tags', ['name' => 'x', 'hostId' => $h['id'], 'subnetId' => $s['id']]), 422, 'validation_failed', 'two targets');
+    $t2 = $a->ok('POST', '/tags', ['name' => "{$tagName} two", 'subnetId' => $s['id']], 201);
+    onCleanup(fn() => deleteIfExists("/tags/{$t2['id']}"));
+    eq("{$tagName}-two", $t2['name'], 'spaces become dashes');
+    $t3 = $a->ok('POST', '/tags', ['name' => $tagName, 'subnetId' => $s['id']], 201);
+    onCleanup(fn() => deleteIfExists("/tags/{$t3['id']}"));
+
+    eq([$tagName], $a->get("/hosts/{$h['id']}")->json['tags'], 'tags on host');
+    eq([$tagName, "{$tagName}-two"], $a->get("/subnets/{$s['id']}")->json['tags'], 'tags on subnet');
+    eq([$h['id']], array_column($a->get("/hosts?tag={$tagName}")->json['data'], 'id'), 'hosts by tag');
+    eq([$s['id']], array_column($a->get("/subnets?tag={$tagName}-two")->json['data'], 'id'), 'subnets by tag');
+    eq(2, count($a->get("/tags?name={$tagName}")->json['data']), 'uses of the name');
+    $names = [];
+    foreach ($a->get('/tags/names')->json['data'] as $n) $names[$n['name']] = $n;
+    eq(['name' => $tagName, 'hostCount' => 1, 'subnetCount' => 1], $names[$tagName] ?? null, 'name counts');
+    expectStatus($a->get('/tags'), 400, 'bad_request', 'unfiltered');
+    expectStatus($a->delete("/tags/{$t['id']}"), 204, null, 'delete');
+    eq([], $a->get("/tags?hostId={$h['id']}")->json['data'], 'host has no tags');
+    eq(0, $a->get("/hosts?tag={$tagName}")->json['meta']['total'], 'filter after delete');
+});
+
+test('messages: add to host and subnet, expire, edit, delete', function () {
+    $a = admin();
+    $net = freeNet();
+    $s = makeSubnet('msg', $net);
+    $h = makeHost('msg-h', "{$net}.10");
+    $m = $a->ok('POST', '/messages', ['hostId' => $h['id'], 'message' => 'Maintenance & reboot = soon', 'priority' => 1], 201);
+    onCleanup(fn() => deleteIfExists("/messages/{$m['id']}"));
+    eq('Maintenance & reboot = soon', $m['message'], 'text round-trips');
+    eq(1, $m['priority'], 'priority');
+    eq('high', $m['priorityName'], 'priority name');
+    eq(ADMIN_USER, $m['username'], 'username recorded');
+    eq(['kind' => 'host', 'id' => $h['id']], $m['target'], 'target');
+    check(strtotime((string)$m['expiration']) > time() + 86400 * 30, 'default expiration is weeks away');
+    $sm = $a->ok('POST', '/messages', ['subnetId' => $s['id'], 'message' => 'subnet note', 'expiration' => date('Y-m-d', time() + 86400 * 3)], 201);
+    onCleanup(fn() => deleteIfExists("/messages/{$sm['id']}"));
+    eq(3, $sm['priority'], 'default priority');
+    eq([$m['id']], array_column($a->get("/messages?hostId={$h['id']}")->json['data'], 'id'), 'host messages');
+    eq([$sm['id']], array_column($a->get("/messages?subnetId={$s['id']}")->json['data'], 'id'), 'subnet messages');
+    expectStatus($a->post('/messages', ['hostId' => $h['id'], 'message' => 'x', 'priority' => 7]), 422, 'validation_failed', 'bad priority');
+    expectStatus($a->post('/messages', ['hostId' => $h['id']]), 422, 'validation_failed', 'no text');
+
+    $m = $a->ok('PATCH', "/messages/{$m['id']}", ['message' => 'edited', 'priority' => 0], 200);
+    eq('edited', $m['message'], 'edited');
+    $m = $a->ok('PATCH', "/messages/{$m['id']}", ['expiration' => 'now'], 200);
+    eq(true, $m['expired'], 'expired');
+    eq([], $a->get("/messages?hostId={$h['id']}")->json['data'], 'expired messages hidden');
+    eq([$m['id']], array_column($a->get("/messages?hostId={$h['id']}&includeExpired=true")->json['data'], 'id'), 'includeExpired');
+    expectStatus($a->delete("/messages/{$m['id']}"), 204, null, 'delete');
+    expectStatus($a->get("/messages/{$m['id']}"), 404, 'not_found', 'gone');
+});
+
+test('change log: lists ona_logs when log_to_db is on', function () {
+    $a = admin();
+    $orig = $a->get('/sys-config/log_to_db')->json['value'] ?? null;
+    if ($orig === null) skip('no log_to_db setting');
+    $a->ok('PATCH', '/sys-config/log_to_db', ['value' => '1'], 200);
+    onCleanup(fn() => admin()->patch('/sys-config/log_to_db', ['value' => $orig]));
+    $net = freeNet();
+    makeSubnet('log', $net);
+    // ONA logs the subnet's address, not its name.
+    $r = $a->get('/change-log?q=' . urlencode("{$net}.0/24"));
+    expectStatus($r, 200);
+    eq(true, $r->json['meta']['logToDb'], 'logToDb');
+    check($r->json['meta']['total'] >= 1, 'subnet add is logged: ' . $r->body);
+    eq(ADMIN_USER, $r->json['data'][0]['username'], 'log username');
+    expectStatus($a->get('/change-log?sort=message'), 400, 'bad_request', 'bad sort');
+    check($a->get('/change-log?username=nobody_' . $GLOBALS['RUN'])->json['meta']['total'] === 0, 'username filter');
+});
+
+test('configs: add, list, view exact text, diff, delete', function () {
+    $a = admin();
+    $net = freeNet();
+    makeSubnet('cfg', $net);
+    $h = makeHost('cfg-h', "{$net}.10");
+    $text1 = "hostname r1\ninterface eth0\n description a=b & c\n!\n";
+    $text2 = "hostname r1\ninterface eth0\n description changed\n!\n";
+    $c1 = $a->ok('POST', '/configs', ['hostId' => $h['id'], 'typeId' => 1, 'text' => $text1], 201);
+    onCleanup(fn() => deleteIfExists("/configs/{$c1['id']}"));
+    eq($text1, $c1['text'], 'exact text');
+    eq(md5($text1), $c1['md5'], 'md5');
+    eq('IOS_CONFIG', $c1['type']['name'], 'type');
+    $c2 = $a->ok('POST', '/configs', ['hostId' => $h['id'], 'typeId' => 1, 'text' => $text2], 201);
+    onCleanup(fn() => deleteIfExists("/configs/{$c2['id']}"));
+    $list = $a->get("/configs?hostId={$h['id']}")->json;
+    eq(2, $list['meta']['total'], 'two configs');
+    check(!isset($list['data'][0]['text']), 'list has no text');
+    $d = $a->ok('GET', "/configs/diff?from={$c1['id']}&to={$c2['id']}", null, 200);
+    check(str_starts_with($d['diff'], '@@ '), 'unified diff: ' . $d['diff']);
+    check(str_contains($d['diff'], 'description a=b & c') && str_contains($d['diff'], 'description changed'), 'diff shows both lines: ' . $d['diff']);
+    eq($c1['id'], $d['from']['id'], 'from is the older config');
+    expectStatus($a->get("/configs/diff?from={$c1['id']}&to={$c1['id']}"), 400, 'bad_request', 'same config');
+    expectStatus($a->get("/configs/diff?from={$c1['id']}&to=999999999"), 404, 'not_found', 'missing config');
+    expectStatus($a->post('/configs', ['hostId' => $h['id'], 'typeId' => 999999, 'text' => 'x']), 404, 'not_found', 'unknown type');
+    expectStatus($a->post('/configs', ['hostId' => $h['id'], 'typeId' => 1, 'text' => '']), 422, 'validation_failed', 'empty text');
+    expectStatus($a->delete("/configs/{$c1['id']}"), 204, null, 'delete');
+    eq(1, $a->get("/configs?hostId={$h['id']}")->json['meta']['total'], 'one left');
+});
+
+test('reports: list, usage, run as text, refuse HTML, unknown names and reserved params', function () {
+    $a = admin();
+    $list = $a->get('/reports');
+    expectStatus($list, 200);
+    expectStatus($a->get('/reports/no_such_report'), 404, 'not_found', 'unknown report');
+    expectStatus($a->post('/reports/no_such_report/run', []), 404, 'not_found', 'unknown report run');
+    $names = array_column($list->json['data'], 'name');
+    if (!in_array('ona_nmap_scans', $names, true)) skip('the bundled nmap report is not enabled');
+    $u = $a->ok('GET', '/reports/ona_nmap_scans', null, 200);
+    check(str_contains($u['usage'], 'nmap'), 'usage text: ' . $u['usage']);
+    expectStatus($a->post('/reports/ona_nmap_scans/run', ['format' => 'html']), 422, 'validation_failed', 'html format');
+    expectStatus($a->post('/reports/ona_nmap_scans/run', ['params' => ['module_loglevel' => '9']]), 422, 'validation_failed', 'reserved param');
+    expectStatus($a->post('/reports/ona_nmap_scans/run', ['params' => ['Bad-Key' => 'x']]), 422, 'validation_failed', 'bad param name');
+    $net = freeNet();
+    makeSubnet('rpt', $net);
+    // No scan file exists for the new subnet, so the report reports that.
+    $r = $a->post('/reports/ona_nmap_scans/run', ['format' => 'text', 'params' => ['subnet' => "{$net}.0"]]);
+    expectStatus($r, 422, 'module_error', 'no scan file');
+    check(str_contains($r->json['error']['message'] . implode(' ', $r->json['error']['details']['output'] ?? []), 'scan'), 'scan error message: ' . $r->body);
+});
+
+test('subnet map: used addresses and pools as offsets; refuses big and IPv6 subnets', function () {
+    $a = admin();
+    $net = freeNet();
+    $s = makeSubnet('map', $net);
+    $h = makeHost('map-h', "{$net}.10");
+    $pool = $a->ok('POST', '/dhcp-pools', ['start' => "{$net}.100", 'end' => "{$net}.110"], 201);
+    onCleanup(fn() => deleteIfExists("/dhcp-pools/{$pool['id']}"));
+    $m = $a->ok('GET', "/subnets/{$s['id']}/map", null, 200);
+    eq(256, $m['size'], 'size');
+    eq([0, 255], $m['reserved'], 'network and broadcast');
+    eq([10], array_column($m['used'], 'offset'), 'used offsets');
+    eq($h['id'], $m['used'][0]['host']['id'], 'used by host');
+    eq([['id' => $pool['id'], 'start' => "{$net}.100", 'end' => "{$net}.110", 'startOffset' => 100, 'endOffset' => 110]], $m['pools'], 'pools');
+    $big = $a->ok('POST', '/subnets', ['name' => strtoupper(name('map-big')), 'ip' => '10.249.0.0', 'netmask' => '16', 'typeId' => 13], 201);
+    onCleanup(fn() => deleteIfExists("/subnets/{$big['id']}"));
+    expectStatus($a->get("/subnets/{$big['id']}/map"), 422, 'unsupported', '/16');
+});
+
+test('advanced filters: hosts by location, IP range, custom attribute; subnets by VLAN and IP range', function () {
+    $a = admin();
+    $net = freeNet();
+    $s = makeSubnet('flt', $net);
+    $h1 = makeHost('flt-a', "{$net}.10");
+    $h2 = makeHost('flt-b', "{$net}.20");
+    $ids = fn(string $q) => array_column($a->get($q)->json['data'], 'id');
+    eq([$h1['id']], $ids("/hosts?ipFrom={$net}.5&ipTo={$net}.15&perPage=200"), 'hosts in range');
+    eq([$h1['id'], $h2['id']], $ids("/hosts?ipFrom={$net}.0&ipTo={$net}.255&perPage=200&sort=ip"), 'hosts in subnet range');
+    eq([$s['id']], $ids("/subnets?ipFrom={$net}.0&ipTo={$net}.0"), 'subnets in range');
+    expectStatus($a->get('/hosts?ipFrom=nope'), 400, 'bad_request', 'bad ipFrom');
+
+    $loc = $a->ok('POST', '/locations', ['reference' => 'RT' . strtoupper($GLOBALS['RUN']), 'name' => name('loc')], 201);
+    onCleanup(fn() => deleteIfExists("/locations/{$loc['id']}"));
+    $a->ok('PATCH', "/hosts/{$h2['id']}", ['locationId' => $loc['id']], 200);
+    onCleanup(fn() => admin()->patch("/hosts/{$h2['id']}", ['locationId' => 0]));
+    eq([$h2['id']], $ids("/hosts?locationId={$loc['id']}"), 'hosts by location');
+
+    $cat = $a->ok('POST', '/custom-attribute-types', ['name' => name('flt-ca')], 201);
+    onCleanup(fn() => deleteIfExists("/custom-attribute-types/{$cat['id']}"));
+    $ca = $a->ok('POST', '/custom-attributes', ['typeId' => $cat['id'], 'value' => 'rack-42', 'hostId' => $h1['id']], 201);
+    onCleanup(fn() => deleteIfExists("/custom-attributes/{$ca['id']}"));
+    eq([$h1['id']], $ids("/hosts?caTypeId={$cat['id']}"), 'hosts with attribute');
+    eq([$h1['id']], $ids("/hosts?caTypeId={$cat['id']}&caValue=42"), 'attribute value match');
+    eq([], $ids("/hosts?caTypeId={$cat['id']}&caValue=99"), 'attribute value miss');
+
+    $camp = makeCampus('flt');
+    $v = $a->ok('POST', '/vlans', ['campusId' => $camp['id'], 'name' => name('flt-v'), 'number' => 42], 201);
+    onCleanup(fn() => deleteIfExists("/vlans/{$v['id']}"));
+    $a->ok('PATCH', "/subnets/{$s['id']}", ['vlanId' => $v['id']], 200);
+    onCleanup(fn() => admin()->patch("/subnets/{$s['id']}", ['vlanId' => 0]));
+    eq([$s['id']], $ids("/subnets?vlanId={$v['id']}"), 'subnets by VLAN');
 });
 
 // ===========================================================================

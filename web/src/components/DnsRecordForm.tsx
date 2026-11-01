@@ -1,7 +1,7 @@
 import { Button, Checkbox, Group, NumberInput, Select, Stack, TextInput } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { modals } from '@mantine/modals';
-import { useCreateDnsRecord, useUpdateDnsRecord, type DnsRecordInput } from '../api/hooks';
+import { useCreateDnsRecord, useDnsViews, useUpdateDnsRecord, type DnsRecordInput } from '../api/hooks';
 import { DNS_TYPES, type DnsRecord } from '../api/types';
 import { applyServerErrors, notifySuccess } from './feedback';
 
@@ -22,6 +22,8 @@ const FIELD_MAP = { pointsTo: 'pointsTo', mxPreference: 'mxPreference', srvPrior
 function DnsRecordForm({ record, defaults }: { record?: DnsRecord; defaults?: Partial<DnsRecordInput> }) {
   const create = useCreateDnsRecord();
   const update = useUpdateDnsRecord();
+  const views = useDnsViews();
+  const scheduled = !!record && !record.enabled && record.activeFrom !== null;
   const form = useForm({
     initialValues: {
       type: record?.type ?? defaults?.type ?? 'A',
@@ -36,6 +38,9 @@ function DnsRecordForm({ record, defaults }: { record?: DnsRecord; defaults?: Pa
       srvPort: (record?.srv?.port ?? '') as number | string,
       notes: record?.notes ?? '',
       addPtr: false,
+      enabled: record ? record.enabled || scheduled : true,
+      activeFrom: scheduled ? record!.activeFrom!.slice(0, 16) : '',
+      viewId: String(record?.view.id ?? 0),
     },
     validate: { name: (v) => (v.trim() ? null : 'Required') },
   });
@@ -54,22 +59,30 @@ function DnsRecordForm({ record, defaults }: { record?: DnsRecord; defaults?: Pa
       srvPriority: uses.srv ? num(v.srvPriority) : undefined,
       srvWeight: uses.srv ? num(v.srvWeight) : undefined,
       srvPort: uses.srv ? num(v.srvPort) : undefined,
+      viewId: Number(v.viewId),
     };
+    // Disabled wins; otherwise a start date schedules the record.
+    const state: DnsRecordInput = !v.enabled ? { enabled: false } : v.activeFrom.trim() ? { activeFrom: v.activeFrom.trim() } : { enabled: true };
     try {
       if (record) {
         const before: DnsRecordInput = {
           name: record.fqdn, ttl: record.ttl, notes: record.notes, ip: record.ip ?? undefined,
           pointsTo: record.pointsTo?.fqdn, mxPreference: record.mxPreference ?? undefined, txt: record.txt ?? undefined,
           srvPriority: record.srv?.priority, srvWeight: record.srv?.weight, srvPort: record.srv?.port,
+          viewId: record.view.id,
         };
         const changed = Object.fromEntries(
           Object.entries(all).filter(([k, val]) => val !== undefined && val !== before[k as keyof DnsRecordInput]),
         );
+        const stateBefore = !record.enabled && !scheduled ? 'off' : scheduled ? `from ${record.activeFrom!.slice(0, 16)}` : 'on';
+        const stateAfter = state.enabled === false ? 'off' : state.activeFrom ? `from ${state.activeFrom}` : 'on';
+        if (stateAfter !== stateBefore) Object.assign(changed, state);
         if (Object.keys(changed).length) await update.mutateAsync({ id: record.id, ...changed });
         notifySuccess('Record saved');
       } else {
         const body = Object.fromEntries(Object.entries(all).filter(([, val]) => val !== undefined && val !== ''));
-        const created = await create.mutateAsync({ ...body, type: v.type, addPtr: uses.ip && v.type !== 'PTR' ? v.addPtr : undefined });
+        if (!body.viewId) delete body.viewId;
+        const created = await create.mutateAsync({ ...body, ...(state.enabled === true ? {} : state), type: v.type, addPtr: uses.ip && v.type !== 'PTR' ? v.addPtr : undefined });
         notifySuccess(`${created.type} record ${created.fqdn} added`);
       }
       modals.closeAll();
@@ -98,6 +111,25 @@ function DnsRecordForm({ record, defaults }: { record?: DnsRecord; defaults?: Pa
           </Group>
         )}
         <TextInput label="Notes" {...form.getInputProps('notes')} />
+        <Group grow align="flex-end">
+          <Checkbox label="Enabled" description="Disabled records stay in ONA but are left out of DNS" mb={4} {...form.getInputProps('enabled', { type: 'checkbox' })} />
+          <TextInput
+            label="Active from"
+            placeholder="YYYY-MM-DD HH:MM"
+            description="Optional: schedule the record"
+            disabled={!form.values.enabled}
+            {...form.getInputProps('activeFrom')}
+          />
+        </Group>
+        {(views.data?.length ?? 0) > 1 && (
+          <Select
+            label="DNS view"
+            description={record?.pointsTo ? 'Records pointing at another record follow its view' : 'Split horizon: which view serves this record'}
+            data={(views.data ?? []).map((v) => ({ value: String(v.id), label: v.description ? `${v.name} – ${v.description}` : v.name }))}
+            allowDeselect={false}
+            {...form.getInputProps('viewId')}
+          />
+        )}
         {!record && uses.ip && form.values.type !== 'PTR' && (
           <Checkbox label="Also add a PTR record" {...form.getInputProps('addPtr', { type: 'checkbox' })} />
         )}

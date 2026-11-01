@@ -9,6 +9,16 @@ import type { MouseEvent } from 'react';
 
 const stop = (e: MouseEvent) => e.stopPropagation();
 
+/** Compact read-only tag list for table rows. */
+export function TagBadges({ tags }: { tags?: string[] }) {
+  if (!tags?.length) return null;
+  return (
+    <Group gap={4} wrap="wrap">
+      {tags.map((t) => <Badge key={t} size="xs" variant="light" color="grape" tt="none">{t}</Badge>)}
+    </Group>
+  );
+}
+
 export function rowActions(opts: { label: string; onEdit?: () => void; onDelete?: () => void }) {
   return (
     <Group gap={4} justify="flex-end" wrap="nowrap" onClick={stop}>
@@ -41,6 +51,7 @@ export const hostColumns = [
   h.accessor('primaryIp', { id: 'ip', header: 'Primary IP', enableSorting: true }),
   h.accessor((r) => r.deviceType?.name ?? '', { id: 'deviceType', header: 'Device type' }),
   h.accessor('interfaceCount', { header: 'Interfaces' }),
+  h.accessor('tags', { header: 'Tags', cell: (c) => <TagBadges tags={c.getValue()} /> }),
   h.accessor('notes', { header: 'Notes', cell: (c) => <Text size="sm" lineClamp={1}>{c.getValue()}</Text> }),
 ];
 
@@ -77,7 +88,23 @@ export function dnsValue(r: DnsRecord): string {
 }
 export const dnsColumns = [
   d.accessor('type', { id: 'type', header: 'Type', enableSorting: true, size: 80, cell: (c) => <Badge variant="light" color={c.getValue() === 'A' || c.getValue() === 'AAAA' ? 'blue' : 'grape'}>{c.getValue()}</Badge> }),
-  d.accessor('fqdn', { id: 'name', header: 'Name', enableSorting: true }),
+  d.accessor('fqdn', {
+    id: 'name',
+    header: 'Name',
+    enableSorting: true,
+    cell: (c) => {
+      const r = c.row.original;
+      return (
+        <Group gap={6} wrap="nowrap">
+          <Text size="sm" td={r.enabled ? undefined : 'line-through'} c={r.enabled ? undefined : 'dimmed'}>{c.getValue()}</Text>
+          {!r.enabled && (r.activeFrom
+            ? <Tooltip label={`Active from ${r.activeFrom}`}><Badge size="xs" color="yellow" variant="light" style={{ flexShrink: 0 }}>scheduled</Badge></Tooltip>
+            : <Badge size="xs" color="gray" variant="light" style={{ flexShrink: 0 }}>disabled</Badge>)}
+          {r.view.id !== 0 && <Badge size="xs" color="cyan" variant="outline">{r.view.name}</Badge>}
+        </Group>
+      );
+    },
+  }),
   d.accessor((r) => dnsValue(r), { id: 'value', header: 'Value', cell: (c) => <Text ff="monospace" size="sm" lineClamp={1}>{c.getValue()}</Text> }),
   d.accessor('ttl', { header: 'TTL', cell: (c) => c.getValue() || <Text span c="dimmed" size="sm">default</Text> }),
   d.accessor('notes', { header: 'Notes', cell: (c) => <Text size="sm" lineClamp={1}>{c.getValue()}</Text> }),

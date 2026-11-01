@@ -9,6 +9,7 @@ import { Fact, SectionHeader } from '../components/panels';
 import { subnetColumns } from '../components/columns';
 import { confirmDelete, notifySuccess } from '../components/feedback';
 import { NotFoundPage } from './NotFoundPage';
+import { BlockMap } from '../components/AddressMaps';
 import { openBlockForm } from './BlocksPage';
 
 export function BlockDetailPage() {
@@ -54,6 +55,7 @@ export function BlockDetailPage() {
         </SimpleGrid>
         {b.notes && <Stack mt="md" gap={0}><Fact label="Notes">{b.notes}</Fact></Stack>}
       </Card>
+      <BlockMap block={b} />
       <SectionHeader title="Subnets in this block" />
       <DataTable columns={subnetColumns} data={b.subnets} onRowClick={(s) => navigate(`/subnets/${s.id}`)} empty="No subnets start inside this block." />
     </Stack>
