@@ -110,6 +110,7 @@ class Hosts
             OR r.dns_id IN (SELECT x.id FROM dns x WHERE x.interface_id IN ({$in}))
             ORDER BY r.type, r.name");
         $host['dnsRecords'] = array_map([DnsRecords::class, 'format'], $dns);
+        $host['services'] = self::services($id);
         return [200, $host];
     }
 
@@ -173,6 +174,30 @@ class Hosts
         self::load($id);
         Ona::run('host_del', ['host' => $id, 'commit' => 'Y'], ['host_del']);
         return [204, null];
+    }
+
+    /** What the host serves: DNS domains (with role) and DHCP subnets / failover groups. */
+    private static function services(int $id): array
+    {
+        $dns = Ona::select('SELECT id, domain_id, role FROM dns_server_domains WHERE host_id = ?', [$id]);
+        $dhcp = Ona::select('SELECT s.id, s.name, s.ip_addr, s.ip_mask FROM dhcp_server_subnets ds JOIN subnets s ON s.id = ds.subnet_id
+            WHERE ds.host_id = ? ORDER BY s.ip_addr', [$id]);
+        $groups = Ona::select('SELECT id FROM dhcp_failover_groups WHERE primary_server_id = ? OR secondary_server_id = ? ORDER BY id', [$id, $id]);
+        $domains = array_map(fn($r) => [
+            'id' => (int)$r['id'],
+            'domain' => ['id' => (int)$r['domain_id'], 'name' => Ona::domainName($r['domain_id'])],
+            'role' => (string)$r['role'],
+        ], $dns);
+        usort($domains, fn($a, $b) => strcmp($a['domain']['name'], $b['domain']['name']));
+        return [
+            'dnsDomains' => $domains,
+            'dhcpSubnets' => array_map(fn($r) => [
+                'id' => (int)$r['id'],
+                'name' => $r['name'],
+                'network' => Ona::ipText($r['ip_addr']) . '/' . Ona::cidr($r['ip_mask']),
+            ], $dhcp),
+            'dhcpFailoverGroupIds' => array_map(fn($r) => (int)$r['id'], $groups),
+        ];
     }
 
     private static function fqdn(array $h): string

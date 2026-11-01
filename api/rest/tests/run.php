@@ -286,12 +286,13 @@ const REFERENCE_ROUTES = [
 
 const PROTECTED_ROUTES = [
     ['GET', '/auth/session'], ['POST', '/auth/password'],
-    ['GET', '/search'],
+    ['GET', '/search'], ['GET', '/stats'],
     ['GET', '/subnets'], ['POST', '/subnets'],
     ['GET', '/subnets/{id}'], ['PATCH', '/subnets/{id}'], ['DELETE', '/subnets/{id}'],
-    ['GET', '/subnets/{id}/next-ip'], ['GET', '/subnets/{id}/map'],
+    ['GET', '/subnets/{id}/next-ip'], ['GET', '/subnets/{id}/map'], ['GET', '/subnets/{id}/addresses'],
     ['GET', '/hosts'], ['POST', '/hosts'],
     ['GET', '/hosts/{id}'], ['PATCH', '/hosts/{id}'], ['DELETE', '/hosts/{id}'],
+    ['GET', '/hosts/{id}/actions'],
     ['GET', '/interfaces'], ['POST', '/interfaces'],
     ['GET', '/interfaces/{id}'], ['PATCH', '/interfaces/{id}'], ['DELETE', '/interfaces/{id}'],
     ['POST', '/interfaces/move'], ['POST', '/interfaces/{id}/move'],
@@ -869,6 +870,17 @@ test('errors: 400 for bad perPage / sort / page / body', function () {
     expectStatus($a->post('/subnets', 'name=x', ['Content-Type' => 'text/plain']), 415, 'unsupported_media_type', 'text/plain body');
     $r = $a->ok('GET', '/subnets?perPage=200', null, 200);
     eq(200, $r['meta']['perPage'], 'perPage=200 allowed');
+});
+
+test('errors: an unknown ona_context_name cookie falls back to the default context, not 503', function () {
+    $c = new Client($GLOBALS['BASE'], 'stale-context');
+    $r = $c->get('/health', ['Cookie' => 'ona_context_name=NO_SUCH_CONTEXT']);
+    expectStatus($r, 200, null, 'health');
+    // The response resets the stale cookie (read from the client's cookie jar).
+    $jar = (string)file_get_contents((new ReflectionProperty($c, 'jar'))->getValue($c));
+    check((bool)preg_match('/\tona_context_name\tDEFAULT\s*$/m', $jar), 'stale cookie not reset to DEFAULT');
+    $r = $c->req('POST', '/auth/login', ['username' => ADMIN_USER, 'password' => ADMIN_PASS], ['Cookie' => 'ona_context_name=NO_SUCH_CONTEXT']);
+    expectStatus($r, 200, null, 'login');
 });
 
 test('errors: 405 for wrong method (with Allow header)', function () {
@@ -1586,7 +1598,7 @@ test('messages: add to host and subnet, expire, edit, delete', function () {
     eq(1, $m['priority'], 'priority');
     eq('high', $m['priorityName'], 'priority name');
     eq(ADMIN_USER, $m['username'], 'username recorded');
-    eq(['kind' => 'host', 'id' => $h['id']], $m['target'], 'target');
+    eq(['kind' => 'host', 'id' => $h['id'], 'name' => $h['fqdn']], $m['target'], 'target');
     check(strtotime((string)$m['expiration']) > time() + 86400 * 30, 'default expiration is weeks away');
     $sm = $a->ok('POST', '/messages', ['subnetId' => $s['id'], 'message' => 'subnet note', 'expiration' => date('Y-m-d', time() + 86400 * 3)], 201);
     onCleanup(fn() => deleteIfExists("/messages/{$sm['id']}"));
@@ -1724,6 +1736,90 @@ test('advanced filters: hosts by location, IP range, custom attribute; subnets b
     $a->ok('PATCH', "/subnets/{$s['id']}", ['vlanId' => $v['id']], 200);
     onCleanup(fn() => admin()->patch("/subnets/{$s['id']}", ['vlanId' => 0]));
     eq([$s['id']], $ids("/subnets?vlanId={$v['id']}"), 'subnets by VLAN');
+});
+
+
+test('stats: counts for the home page', function () {
+    $a = admin();
+    $before = $a->ok('GET', '/stats', null, 200);
+    foreach (['subnets', 'hosts', 'interfaces', 'dnsRecords', 'domains', 'vlans', 'blocks', 'locations', 'dhcpServers', 'dnsServers', 'activeMessages'] as $k) {
+        check(is_int($before['counts'][$k] ?? null), "counts.{$k}: " . json_encode($before));
+    }
+    $net = freeNet();
+    makeSubnet('stats', $net);
+    makeHost('stats-h', "{$net}.10");
+    $after = $a->ok('GET', '/stats', null, 200);
+    eq($before['counts']['subnets'] + 1, $after['counts']['subnets'], 'one more subnet');
+    eq($before['counts']['hosts'] + 1, $after['counts']['hosts'], 'one more host');
+    $g = (new Client($GLOBALS['BASE'], 'guest'))->mustLogin(GUEST_USER, GUEST_PASS);
+    expectStatus($g->get('/stats'), 200, null, 'guest can read stats');
+});
+
+test('hosts: services (DNS domains, DHCP subnets) and action links', function () {
+    $a = admin();
+    $net = freeNet();
+    $s = makeSubnet('svc', $net);
+    $h = makeHost('svc-h', "{$net}.10");
+    eq(['dnsDomains' => [], 'dhcpSubnets' => [], 'dhcpFailoverGroupIds' => []], $a->get("/hosts/{$h['id']}")->json['services'], 'no services');
+    $ds = $a->ok('POST', '/dhcp-servers', ['hostId' => $h['id'], 'subnetId' => $s['id']], 201);
+    onCleanup(fn() => deleteIfExists("/dhcp-servers/{$h['id']}/subnets/{$s['id']}"));
+    $dom = null;
+    foreach ($a->get('/domains')->json['data'] as $d) if ($d['name'] === 'example.com') $dom = $d;
+    $as = $a->ok('POST', '/domain-servers', ['domainId' => $dom['id'], 'hostId' => $h['id'], 'role' => 'slave'], 201);
+    onCleanup(fn() => deleteIfExists("/domain-servers/{$as['id']}"));
+    $svc = $a->get("/hosts/{$h['id']}")->json['services'];
+    eq([['id' => $as['id'], 'domain' => ['id' => $dom['id'], 'name' => 'example.com'], 'role' => 'slave']], $svc['dnsDomains'], 'DNS domains');
+    eq([$s['id']], array_column($svc['dhcpSubnets'], 'id'), 'DHCP subnets');
+
+    // Action links come from ONA's host_actions config; the bundled examples
+    // use %fqdn (Splunk), %ca[cacti_server] and %loc.
+    $links = fn() => array_column($a->get("/hosts/{$h['id']}/actions")->json['data'], 'url', 'name');
+    $l = $links();
+    if (!isset($l['Splunk'])) skip('host_actions config has no Splunk example (customised locally)');
+    check(str_ends_with($l['Splunk'], 'q=' . $h['fqdn']), 'fqdn substituted: ' . $l['Splunk']);
+    check(!isset($l['Cacti Graph']), 'link with an unset custom attribute is left out');
+    check(!isset($l['Wiki Page']), 'link needing a location is left out when the host has none');
+    $cat = $a->ok('POST', '/custom-attribute-types', ['name' => 'cacti_server'], 201);
+    onCleanup(fn() => deleteIfExists("/custom-attribute-types/{$cat['id']}"));
+    $ca = $a->ok('POST', '/custom-attributes', ['typeId' => $cat['id'], 'value' => 'cacti.example.net', 'hostId' => $h['id']], 201);
+    onCleanup(fn() => deleteIfExists("/custom-attributes/{$ca['id']}"));
+    $l = $links();
+    eq("https://cacti.example.net/cacti/graph_view.php?action=tree&name={$h['fqdn']}", $l['Cacti Graph'] ?? null, 'custom attribute substituted');
+    expectStatus($a->get('/hosts/999999999/actions'), 404, 'not_found', 'missing host');
+});
+
+test('subnet addresses: every address with status, used and free filters, paging', function () {
+    $a = admin();
+    $net = freeNet();
+    $s = makeSubnet('addr', $net);
+    makeHost('addr-h', "{$net}.2");
+    $pool = $a->ok('POST', '/dhcp-pools', ['start' => "{$net}.5", 'end' => "{$net}.6"], 201);
+    onCleanup(fn() => deleteIfExists("/dhcp-pools/{$pool['id']}"));
+    $r = $a->ok('GET', "/subnets/{$s['id']}/addresses?perPage=8", null, 200);
+    eq(256, $r['meta']['total'], 'total');
+    eq(32, $r['meta']['totalPages'], 'pages');
+    eq(['reserved', 'free', 'used', 'free', 'free', 'pool', 'pool', 'free'], array_column($r['data'], 'status'), 'statuses');
+    eq("{$net}.0", $r['data'][0]['ip'], 'first address');
+    eq($pool['id'], $r['data'][5]['poolId'], 'pool id');
+    $last = $a->ok('GET', "/subnets/{$s['id']}/addresses?perPage=8&page=32", null, 200);
+    eq('reserved', end($last['data'])['status'], 'broadcast');
+    $used = $a->ok('GET', "/subnets/{$s['id']}/addresses?status=used", null, 200);
+    eq(["{$net}.2"], array_column($used['data'], 'ip'), 'used');
+    $free = $a->ok('GET', "/subnets/{$s['id']}/addresses?status=free&perPage=3", null, 200);
+    eq(256 - 2 - 1 - 2, $free['meta']['total'], 'free total');
+    eq(["{$net}.1", "{$net}.3", "{$net}.4"], array_column($free['data'], 'ip'), 'first free page');
+    $free2 = $a->ok('GET', "/subnets/{$s['id']}/addresses?status=free&perPage=3&page=2", null, 200);
+    eq(["{$net}.7", "{$net}.8", "{$net}.9"], array_column($free2['data'], 'ip'), 'second free page skips the pool');
+    expectStatus($a->get("/subnets/{$s['id']}/addresses?status=bogus"), 400, 'bad_request', 'bad status');
+    expectStatus($a->get("/subnets/{$s['id']}/addresses?perPage=5000"), 400, 'bad_request', 'perPage limit');
+
+    // IPv6: totals beyond PHP integers come back as strings.
+    $v6 = $a->ok('POST', '/subnets', ['name' => strtoupper(name('addr6')), 'ip' => 'fd00:' . dechex(random_int(1, 65535)) . '::', 'netmask' => '64', 'typeId' => 13], 201);
+    onCleanup(fn() => deleteIfExists("/subnets/{$v6['id']}"));
+    $r6 = $a->ok('GET', "/subnets/{$v6['id']}/addresses?perPage=2&page=3", null, 200);
+    eq('18446744073709551616', $r6['meta']['total'], 'IPv6 /64 total');
+    eq('free', $r6['data'][0]['status'], 'IPv6 status');
+    check(str_ends_with($r6['data'][0]['ip'], '::4'), 'IPv6 paging: ' . $r6['data'][0]['ip']);
 });
 
 // ===========================================================================

@@ -219,12 +219,26 @@ class Messages
         return date('Y-m-d H:i:s', $t);
     }
 
+    /** The host's FQDN or the subnet's name, for lists that mix targets. */
+    private static function targetName(string $kind, int $id): ?string
+    {
+        if ($kind === 'host') {
+            $r = Ona::select('SELECT d.name, d.domain_id FROM hosts h JOIN dns d ON d.id = h.primary_dns_id WHERE h.id = ?', [$id]);
+            return $r ? ($r[0]['name'] ? $r[0]['name'] . '.' : '') . Ona::domainName($r[0]['domain_id']) : null;
+        }
+        if ($kind === 'subnet') {
+            $r = Ona::select('SELECT name FROM subnets WHERE id = ?', [$id]);
+            return $r ? $r[0]['name'] : null;
+        }
+        return null;
+    }
+
     public static function format(array $m): array
     {
         $kind = $m['table_name_ref'] === 'hosts' ? 'host' : ($m['table_name_ref'] === 'subnets' ? 'subnet' : $m['table_name_ref']);
         return [
             'id' => (int)$m['id'],
-            'target' => ['kind' => $kind, 'id' => (int)$m['table_id_ref']],
+            'target' => ['kind' => $kind, 'id' => (int)$m['table_id_ref'], 'name' => self::targetName($kind, (int)$m['table_id_ref'])],
             'priority' => (int)$m['priority'],
             'priorityName' => self::PRIORITIES[(int)$m['priority']] ?? 'low',
             'message' => $m['message_text'],

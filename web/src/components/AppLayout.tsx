@@ -130,7 +130,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     to={s.path}
                     label={s.label}
                     leftSection={<s.icon size={18} />}
-                    active={pathname.startsWith(s.path)}
+                    active={s.path === '/' ? pathname === '/' : pathname.startsWith(s.path)}
                     onClick={close}
                   />
                 ))}
