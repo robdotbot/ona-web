@@ -145,6 +145,13 @@ EOM
     }
     
     
+    // Config text can hold passwords; the legacy window needs this too.
+    if (!auth('host_config_admin')) {
+        $self['error'] = "Permission denied!";
+        printmsg($self['error'], 0);
+        return(array(10, $self['error'] . "\n"));
+    }
+
     // Get a config record if there is one
     $self['error'] = "";
     list($status, $rows, $config) = ona_find_config($options);
@@ -626,7 +633,10 @@ EOM
             'configuration_type_id'   => $config_type['id'],
             'host_id'                 => $host['id'],
             'md5_checksum'            => md5($options['config']),
-            'config_body'             => $options['config']
+            'config_body'             => $options['config'],
+            // ctime has no default with explicit_defaults_for_timestamp
+            // (the MariaDB 10.10+ default), so set it.
+            'ctime'                   => date('Y-m-d H:i:s')
         )
     );
     if ($status or !$rows) {
@@ -717,14 +727,28 @@ EOM
         ));
     }
 
+    // Config text can hold passwords; the legacy window needs this too.
+    if (!auth('host_config_admin')) {
+        $self['error'] = "Permission denied!";
+        printmsg($self['error'], 0);
+        return(array(10, $self['error'] . "\n"));
+    }
+
     $text = "";
 
     // Compare arbitrary configs based on config IDs
     // If we have ids, lets use those instead
     if ($options['ida'] and $options['idb']) {
+        // The IDs used to go into the SQL unchecked (SQL injection).
+        if (!preg_match('/^\d+$/', $options['ida']) or !preg_match('/^\d+$/', $options['idb'])) {
+            $self['error'] = "ERROR => A non-digit config ID was specified!";
+            return(array(2, $self['error'] . "\n"));
+        }
+        $ida = (int)$options['ida'];
+        $idb = (int)$options['idb'];
         // get the two configs from the db
         list($status, $rows, $configs) = db_get_records($onadb,'configurations',
-                                               "id in ({$options['ida']},{$options['idb']})",
+                                               "id in ({$ida},{$idb})",
                                                'ctime DESC',
                                                '2',
                                                '0'

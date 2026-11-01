@@ -18,10 +18,11 @@ class Ona
      * run_module() inserts backslashes into array values containing "=" or "&",
      * while the string form is unescaped again by parse_options().
      */
-    public static function run(string $module, array $options, array $requiredPerms): string
+    public static function run(string $module, array $options, array $requiredPerms, array $okStatuses = [0], bool $trim = true): string
     {
         global $self;
         Auth::requirePerm(...$requiredPerms);
+        self::$lastStatus = 0;
 
         $parts = [];
         foreach ($options as $key => $value) {
@@ -33,7 +34,8 @@ class Ona
         $self['error'] = '';
         [$status, $output] = run_module($module, implode('&', $parts));
         $output = (string)$output;
-        if ((int)$status === 0) return trim($output);
+        self::$lastStatus = (int)$status;
+        if (in_array((int)$status, $okStatuses, true)) return $trim ? trim($output) : $output;
 
         $text = $output . "\n" . ($self['error'] ?? '');
         if (stripos($text, 'Permission denied') !== false) {
@@ -48,7 +50,10 @@ class Ona
         ]);
     }
 
-    private static function cleanLines(string $text): array
+    /** Exit status of the last run() that returned (0 unless $okStatuses allowed another). */
+    public static int $lastStatus = 0;
+
+    public static function cleanLines(string $text): array
     {
         $lines = array_map('trim', preg_split('/\r?\n|\\\\n/', $text));
         return array_values(array_filter($lines, fn($l) => $l !== ''));

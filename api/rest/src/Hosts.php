@@ -55,6 +55,36 @@ class Hosts
             $where[] = 'd.domain_id = ?';
             $params[] = $domain;
         }
+        if (($type = $req->queryInt('deviceTypeId')) !== null) {
+            $where[] = 'EXISTS (SELECT 1 FROM devices dv WHERE dv.id = h.device_id AND dv.device_type_id = ?)';
+            $params[] = $type;
+        }
+        if (($loc = $req->queryInt('locationId')) !== null) {
+            $where[] = 'EXISTS (SELECT 1 FROM devices dv WHERE dv.id = h.device_id AND dv.location_id = ?)';
+            $params[] = $loc;
+        }
+        // ipFrom / ipTo: hosts with any interface in the range.
+        $range = Filters::ipRange($req);
+        if ($range) {
+            $where[] = 'EXISTS (SELECT 1 FROM interfaces i WHERE i.host_id = h.id AND ' . implode(' AND ', array_map(fn($r) => "i.ip_addr {$r[0]} CAST(? AS DECIMAL(39,0))", $range)) . ')';
+            foreach ($range as $r) $params[] = $r[1];
+        }
+        $tag = $req->queryString('tag');
+        if ($tag !== '') {
+            $where[] = Tags::filter('host', 'h.id');
+            $params[] = $tag;
+        }
+        // caTypeId [+ caValue]: hosts with that custom attribute (value substring).
+        if (($ca = $req->queryInt('caTypeId')) !== null) {
+            $cond = "EXISTS (SELECT 1 FROM custom_attributes ca WHERE ca.table_name_ref = 'hosts' AND ca.table_id_ref = h.id AND ca.custom_attribute_type_id = ?";
+            $params[] = $ca;
+            $value = $req->queryString('caValue');
+            if ($value !== '') {
+                $cond .= ' AND ca.value LIKE ?';
+                $params[] = '%' . Sql::likeEscape($value) . '%';
+            }
+            $where[] = $cond . ')';
+        }
         return [$where, $params];
     }
 
@@ -69,7 +99,10 @@ class Hosts
     {
         $host = self::format(self::load($id), true);
         $ifaces = Ona::select(Interfaces::BASE_SQL . ' WHERE i.host_id = ? ORDER BY i.ip_addr', [$id]);
-        $host['interfaces'] = array_map([Interfaces::class, 'format'], $ifaces);
+        $host['interfaces'] = array_map(fn($i) => Interfaces::format($i) + ['sharedWith' => Interfaces::sharedWith((int)$i['id'])], $ifaces);
+        // Other hosts' interfaces shared with this one (interface_clusters).
+        $shared = Ona::select(Interfaces::BASE_SQL . ', interface_clusters c WHERE c.interface_id = i.id AND c.host_id = ? ORDER BY i.ip_addr', [$id]);
+        $host['sharedInterfaces'] = array_map([Interfaces::class, 'format'], $shared);
         $ids = array_map(fn($i) => (int)$i['id'], $ifaces) ?: [0];
         $in = implode(',', $ids);
         // Records on the host's addresses, plus CNAMEs etc. pointing at them.
@@ -160,6 +193,7 @@ class Hosts
             'notes' => trim((string)$h['notes']),
             'deviceType' => null,
             'location' => null,
+            'tags' => Tags::namesFor('host', (int)$h['id']),
         ];
         if ($h['device_id']) {
             $device = Ona::byId('devices', (int)$h['device_id']);

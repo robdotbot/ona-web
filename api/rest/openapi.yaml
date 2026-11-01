@@ -42,8 +42,12 @@ tags:
   - name: locations
   - name: domains
   - name: admin
+  - name: tags
+  - name: messages
+  - name: configs
+  - name: reports
+  - name: reference
   - name: search
-  - name: lookups
 
 paths:
   /health:
@@ -119,6 +123,27 @@ paths:
               schema: { $ref: '#/components/schemas/Session' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /auth/password:
+    post:
+      tags: [auth]
+      summary: Change your own password (local ONA users only)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                  currentPassword: { type: string }
+                  newPassword: { type: string, maxLength: 1024 }
+      responses:
+        '204': { description: Changed }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /search:
     get:
       tags: [search]
@@ -139,19 +164,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
-  /subnet-types:
-    get:
-      tags: [lookups]
-      summary: Subnet types
-      responses:
-        '200': { $ref: '#/components/responses/LookupList' }
-  /device-types:
-    get:
-      tags: [lookups]
-      summary: Device types (manufacturer, model and role)
-      responses:
-        '200': { $ref: '#/components/responses/LookupList' }
-
   /subnets:
     get:
       tags: [subnets]
@@ -167,6 +179,10 @@ paths:
           description: Name substring, or an IP address to find the subnet containing it
           schema: { type: string }
         - { name: typeId, in: query, schema: { type: integer } }
+        - { name: vlanId, in: query, schema: { type: integer } }
+        - { name: ipFrom, in: query, description: Network address at or above this IP, schema: { type: string } }
+        - { name: ipTo, in: query, description: Network address at or below this IP, schema: { type: string } }
+        - { name: tag, in: query, description: Tag name, schema: { type: string } }
       responses:
         '200':
           description: OK
@@ -275,6 +291,21 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /subnets/{id}/map:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [subnets]
+      summary: Address map of an IPv4 subnet (up to /20)
+      description: Used addresses and DHCP pools as offsets from the network address; the client draws the grid. 422 `unsupported` for IPv6 or larger subnets.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubnetMap' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /hosts:
     get:
       tags: [hosts]
@@ -291,6 +322,13 @@ paths:
           schema: { type: string }
         - { name: subnetId, in: query, schema: { type: integer } }
         - { name: domainId, in: query, schema: { type: integer } }
+        - { name: deviceTypeId, in: query, schema: { type: integer } }
+        - { name: locationId, in: query, schema: { type: integer } }
+        - { name: ipFrom, in: query, description: Hosts with an interface at or above this IP, schema: { type: string } }
+        - { name: ipTo, in: query, description: Hosts with an interface at or below this IP, schema: { type: string } }
+        - { name: tag, in: query, description: Tag name, schema: { type: string } }
+        - { name: caTypeId, in: query, description: Hosts with a custom attribute of this type, schema: { type: integer } }
+        - { name: caValue, in: query, description: '...whose value contains this (with caTypeId)', schema: { type: string } }
       responses:
         '200':
           description: OK
@@ -482,6 +520,150 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /interfaces/move:
+    post:
+      tags: [interfaces]
+      summary: Move the interfaces in an address range to another subnet (module interface_move, permission interface_modify)
+      description: |
+        IPv4 only. The interfaces between `start` and `end` (one subnet) get
+        the free addresses from `newStart` to `newEnd` (another subnet), in
+        order, skipping DHCP pools. Without `commit` nothing changes and the
+        response lists what would move.
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [start, newStart]
+              properties:
+                  start: { type: string }
+                  end: { type: string, description: Defaults to start }
+                  newStart: { type: string }
+                  newEnd: { type: string, description: Defaults to newStart }
+                  commit: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Preview or result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  committed: { type: boolean }
+                  moves:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        from: { type: string }
+                        to: { type: string }
+                        host: { type: string }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /interfaces/{id}/move:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    post:
+      tags: [interfaces]
+      summary: Move an interface to another host (module interface_move_host, permission advanced)
+      description: The host's primary interface can't be moved (422).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hostId]
+              properties:
+                  hostId: { type: integer }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Interface' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /interfaces/{id}/shares:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    post:
+      tags: [interfaces]
+      summary: Share the interface's address with another host, e.g. for VRRP/HSRP/CARP (module interface_share, permission interface_del)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hostId]
+              properties:
+                  hostId: { type: integer }
+                  name: { type: string, description: Interface name on that host, if different }
+      responses:
+        '201':
+          description: Shared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Interface' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /interfaces/{id}/shares/{hostId}:
+    parameters:
+      - { $ref: '#/components/parameters/id' }
+      - { name: hostId, in: path, required: true, schema: { type: integer } }
+    delete:
+      tags: [interfaces]
+      summary: Stop sharing the interface with a host (module interface_share_del, permission interface_del)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /interfaces/{id}/nat:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    post:
+      tags: [interfaces]
+      summary: Add an external NAT address (module nat_add, permissions interface_modify and host_add)
+      description: ONA adds the address as a new interface ("EXT NAT") on the same host, with a PTR record (which needs a reverse zone).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ip]
+              properties:
+                  ip: { type: string }
+      responses:
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Interface' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [interfaces]
+      summary: Remove the NAT address and its interface (module nat_del, permissions interface_modify, interface_del, host_del)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /dns-records:
     get:
       tags: [dns]
@@ -498,6 +680,8 @@ paths:
           schema: { $ref: '#/components/schemas/DnsType' }
         - { name: domainId, in: query, schema: { type: integer } }
         - { name: hostId, in: query, schema: { type: integer } }
+        - { name: viewId, in: query, schema: { type: integer } }
+        - { name: enabled, in: query, schema: { type: boolean } }
       responses:
         '200':
           description: OK
@@ -1165,21 +1349,6 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
-  /dhcp-options:
-    get:
-      tags: [dhcp]
-      summary: DHCP option definitions (read-only)
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data: { type: array, items: { $ref: '#/components/schemas/DhcpOption' } }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
   /dhcp-entries:
     get:
       tags: [dhcp]
@@ -1704,6 +1873,1086 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /domain-servers:
+    get:
+      tags: [domains]
+      summary: DNS server assignments
+      parameters:
+        - { name: domainId, in: query, schema: { type: integer } }
+        - { name: hostId, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/DomainServer' } }
+    post:
+      tags: [domains]
+      summary: Assign a DNS server to a domain (module domain_server_add, permission advanced)
+      description: Also adds an NS record for the server in the domain if there isn't one.
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [domainId, hostId]
+              properties:
+                  domainId: { type: integer }
+                  hostId: { type: integer }
+                  role: { type: string, enum: [master, slave, forward], default: master }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DomainServer' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /domain-servers/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [domains]
+      summary: Get a DNS server assignment
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DomainServer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [domains]
+      summary: Remove a DNS server from a domain (module domain_server_del, permission advanced)
+      description: Also deletes the server's NS record in the domain.
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+
+  /tags:
+    get:
+      tags: [tags]
+      summary: Tags on a host or subnet, or every use of a tag name
+      description: One of hostId, subnetId or name is required.
+      parameters:
+        - { name: hostId, in: query, schema: { type: integer } }
+        - { name: subnetId, in: query, schema: { type: integer } }
+        - { name: name, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Tag' } }
+        '400': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [tags]
+      summary: Tag a host (permission host_add) or subnet (permission subnet_add) (module tag_add)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                  name: { type: string, maxLength: 127, description: 'Letters, digits and . _ : / + -; spaces become -' }
+                  hostId: { type: integer }
+                  subnetId: { type: integer }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tag' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /tags/names:
+    get:
+      tags: [tags]
+      summary: Every tag name, with how many hosts and subnets carry it
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        hostCount: { type: integer }
+                        subnetCount: { type: integer }
+  /tags/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    delete:
+      tags: [tags]
+      summary: Remove a tag (module tag_del; permission host_del or subnet_del)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+
+  /messages:
+    get:
+      tags: [messages]
+      summary: Messages on a host or subnet
+      description: Expired messages are left out unless includeExpired=true. Sorted by priority (0 info, 1 high, 2 medium, 3 low).
+      parameters:
+        - { name: hostId, in: query, schema: { type: integer } }
+        - { name: subnetId, in: query, schema: { type: integer } }
+        - { name: includeExpired, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Message' } }
+    post:
+      tags: [messages]
+      summary: Add a message (module message_add, permission advanced)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                  hostId: { type: integer }
+                  subnetId: { type: integer }
+                  message: { type: string, maxLength: 4000 }
+                  priority: { type: integer, minimum: 0, maximum: 3, default: 3 }
+                  expiration: { type: string, description: 'YYYY-MM-DD[ HH:MM[:SS]]; default six weeks from now' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /messages/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [messages]
+      summary: Get a message
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [messages]
+      summary: Change or expire a message (direct write, permission advanced)
+      description: ONA has no module for this. `expiration` "now" expires the message.
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                  message: { type: string }
+                  priority: { type: integer, minimum: 0, maximum: 3 }
+                  expiration: { type: string, description: 'A date, or "now"' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [messages]
+      summary: Delete a message (direct write, permission advanced)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+
+  /configs:
+    get:
+      tags: [configs]
+      summary: Config archive entries, newest first, without the text (permission host_config_admin)
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+        - { name: hostId, in: query, schema: { type: integer } }
+        - { name: typeId, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListMeta'
+                  - properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Config' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [configs]
+      summary: Archive a config (module config_add, permission host_config_admin)
+      description: Send the config text itself; file names are not accepted.
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hostId, typeId, text]
+              properties:
+                  hostId: { type: integer }
+                  typeId: { type: integer, description: A config type (GET /config-types) }
+                  text: { type: string, maxLength: 4194304 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /configs/diff:
+    get:
+      tags: [configs]
+      summary: Unified diff between two configs, older to newer (module config_diff, permission host_config_admin)
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: integer } }
+        - { name: to, in: query, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  from: { $ref: '#/components/schemas/Config' }
+                  to: { $ref: '#/components/schemas/Config' }
+                  diff: { type: string }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /configs/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [configs]
+      summary: A config with its text (module config_display, permission host_config_admin)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [configs]
+      summary: Delete a config (module config_del, permission host_config_admin)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+
+  /reports:
+    get:
+      tags: [reports]
+      summary: Reports provided by enabled plugins (module report_run list)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string, example: ona_nmap_scans }
+                        description: { type: string }
+  /reports/{key}:
+    parameters: [ { $ref: '#/components/parameters/key' } ]
+    get:
+      tags: [reports]
+      summary: A report's usage text (report_run rpt_usage)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  description: { type: string }
+                  usage: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /reports/{key}/run:
+    parameters: [ { $ref: '#/components/parameters/key' } ]
+    post:
+      tags: [reports]
+      summary: Run a report as text or CSV (module report_run)
+      description: |
+        Only report names from GET /reports are accepted and only the text
+        and CSV formats (never a plugin's HTML). `params` are the report's own
+        options (see its usage text); names are lower case letters, digits
+        and `_`, values strings, numbers or `true`. Reports that change data
+        rely on the modules they call to check permissions.
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                  format: { type: string, enum: [text, csv], default: text }
+                  params: { type: object, additionalProperties: { type: [string, integer, boolean] } }
+      responses:
+        '200':
+          description: Report output
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  format: { type: string }
+                  output: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+
+  /manufacturers:
+    get:
+      tags: [reference]
+      summary: List manufacturers
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Manufacturer' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [reference]
+      summary: Add one of the manufacturers (permission advanced)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                  name: { type: string, maxLength: 191 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Manufacturer' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /manufacturers/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [reference]
+      summary: Get one of the manufacturers
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Manufacturer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [reference]
+      summary: Change one of the manufacturers (permission advanced)
+      description: Built-in rows (system DHCP options, the default DNS view) can't be changed (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                  name: { type: string, maxLength: 191 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Manufacturer' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [reference]
+      summary: Delete one of the manufacturers (permission advanced)
+      description: Rows still in use (`inUse` > 0) and built-in rows can't be deleted (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /models:
+    get:
+      tags: [reference]
+      summary: List models
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Model' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [reference]
+      summary: Add one of the models (permission advanced)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, manufacturerId]
+              properties:
+                  name: { type: string, maxLength: 191 }
+                  manufacturerId: { type: integer }
+                  snmpSysObjectId: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Model' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /models/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [reference]
+      summary: Get one of the models
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Model' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [reference]
+      summary: Change one of the models (permission advanced)
+      description: Built-in rows (system DHCP options, the default DNS view) can't be changed (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                  name: { type: string, maxLength: 191 }
+                  manufacturerId: { type: integer }
+                  snmpSysObjectId: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Model' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [reference]
+      summary: Delete one of the models (permission advanced)
+      description: Rows still in use (`inUse` > 0) and built-in rows can't be deleted (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /roles:
+    get:
+      tags: [reference]
+      summary: List device roles
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Role' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [reference]
+      summary: Add one of the device roles (permission advanced)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                  name: { type: string, maxLength: 127 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /roles/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [reference]
+      summary: Get one of the device roles
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [reference]
+      summary: Change one of the device roles (permission advanced)
+      description: Built-in rows (system DHCP options, the default DNS view) can't be changed (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                  name: { type: string, maxLength: 127 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [reference]
+      summary: Delete one of the device roles (permission advanced)
+      description: Rows still in use (`inUse` > 0) and built-in rows can't be deleted (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /device-types:
+    get:
+      tags: [reference]
+      summary: List device types (a model in a role)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/DeviceTypeRecord' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [reference]
+      summary: Add one of the device types (a model in a role) (permission advanced)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modelId, roleId]
+              properties:
+                  modelId: { type: integer }
+                  roleId: { type: integer }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceTypeRecord' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /device-types/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [reference]
+      summary: Get one of the device types (a model in a role)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceTypeRecord' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [reference]
+      summary: Change one of the device types (a model in a role) (permission advanced)
+      description: Built-in rows (system DHCP options, the default DNS view) can't be changed (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                  modelId: { type: integer }
+                  roleId: { type: integer }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceTypeRecord' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [reference]
+      summary: Delete one of the device types (a model in a role) (permission advanced)
+      description: Rows still in use (`inUse` > 0) and built-in rows can't be deleted (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /subnet-types:
+    get:
+      tags: [reference]
+      summary: List subnet types
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SubnetType' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [reference]
+      summary: Add one of the subnet types (permission advanced)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                  name: { type: string, maxLength: 63 }
+                  shortName: { type: string, maxLength: 31, description: 'Letters, digits, - and _ (stored lower case)' }
+                  notes: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubnetType' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /subnet-types/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [reference]
+      summary: Get one of the subnet types
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubnetType' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [reference]
+      summary: Change one of the subnet types (permission advanced)
+      description: Built-in rows (system DHCP options, the default DNS view) can't be changed (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                  name: { type: string, maxLength: 63 }
+                  shortName: { type: string, maxLength: 31, description: 'Letters, digits, - and _ (stored lower case)' }
+                  notes: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubnetType' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [reference]
+      summary: Delete one of the subnet types (permission advanced)
+      description: Rows still in use (`inUse` > 0) and built-in rows can't be deleted (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /dhcp-options:
+    get:
+      tags: [reference]
+      summary: List DHCP option definitions
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/DhcpOption' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [reference]
+      summary: Add one of the DHCP option definitions (permission advanced)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, displayName, number, type]
+              properties:
+                  name: { type: string, maxLength: 31, description: 'Letters, digits and -' }
+                  displayName: { type: string, maxLength: 31 }
+                  number: { type: integer, minimum: 0, maximum: 254 }
+                  type: { type: string, enum: [L, S, N, I, B] }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpOption' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /dhcp-options/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [reference]
+      summary: Get one of the DHCP option definitions
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpOption' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [reference]
+      summary: Change one of the DHCP option definitions (permission advanced)
+      description: Built-in rows (system DHCP options, the default DNS view) can't be changed (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                  name: { type: string, maxLength: 31, description: 'Letters, digits and -' }
+                  displayName: { type: string, maxLength: 31 }
+                  number: { type: integer, minimum: 0, maximum: 254 }
+                  type: { type: string, enum: [L, S, N, I, B] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DhcpOption' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [reference]
+      summary: Delete one of the DHCP option definitions (permission advanced)
+      description: Rows still in use (`inUse` > 0) and built-in rows can't be deleted (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /config-types:
+    get:
+      tags: [reference]
+      summary: List config archive types
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ConfigType' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [reference]
+      summary: Add one of the config archive types (permission advanced)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                  name: { type: string, maxLength: 63 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigType' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /config-types/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [reference]
+      summary: Get one of the config archive types
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigType' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [reference]
+      summary: Change one of the config archive types (permission advanced)
+      description: Built-in rows (system DHCP options, the default DNS view) can't be changed (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                  name: { type: string, maxLength: 63 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigType' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [reference]
+      summary: Delete one of the config archive types (permission advanced)
+      description: Rows still in use (`inUse` > 0) and built-in rows can't be deleted (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /dns-views:
+    get:
+      tags: [reference]
+      summary: List DNS views (split horizon)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/DnsView' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [reference]
+      summary: Add one of the DNS views (split horizon) (permission advanced)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                  name: { type: string, maxLength: 191, description: 'Stored upper case, spaces become -' }
+                  description: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DnsView' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /dns-views/{id}:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [reference]
+      summary: Get one of the DNS views (split horizon)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DnsView' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [reference]
+      summary: Change one of the DNS views (split horizon) (permission advanced)
+      description: Built-in rows (system DHCP options, the default DNS view) can't be changed (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                  name: { type: string, maxLength: 191, description: 'Stored upper case, spaces become -' }
+                  description: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DnsView' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [reference]
+      summary: Delete one of the DNS views (split horizon) (permission advanced)
+      description: Rows still in use (`inUse` > 0) and built-in rows can't be deleted (409).
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /users:
     get:
       tags: [admin]
@@ -2011,6 +3260,29 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /change-log:
+    get:
+      tags: [admin]
+      summary: The ONA change log (table ona_logs, permission advanced)
+      description: ONA only writes it when the `log_to_db` system setting is 1; `meta.logToDb` says whether it is on.
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+        - { name: sort, in: query, schema: { type: string, enum: [timestamp, -timestamp, username, -username], default: -timestamp } }
+        - { name: q, in: query, description: Message substring, schema: { type: string } }
+        - { name: username, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListMeta'
+                  - properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/LogEntry' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /plugins:
     get:
       tags: [admin]
@@ -2121,21 +3393,6 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-    LookupList:
-      description: OK
-      content:
-        application/json:
-          schema:
-            type: object
-            properties:
-              data:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id: { type: integer }
-                    name: { type: string }
-                  additionalProperties: true
 
   schemas:
     Error:
@@ -2203,6 +3460,7 @@ components:
             used: { type: integer }
             total: { type: string, description: Usable addresses (a string because IPv6 sizes overflow integers) }
             percent: { type: integer }
+        tags: { type: array, items: { type: string } }
 
     SubnetDetail:
       allOf:
@@ -2253,6 +3511,7 @@ components:
                 reference: { type: string }
                 name: { type: string }
                 city: { type: string }
+        tags: { type: array, items: { type: string } }
 
     HostDetail:
       allOf:
@@ -2260,8 +3519,26 @@ components:
         - type: object
           properties:
             primaryDnsId: { type: integer }
-            interfaces: { type: array, items: { $ref: '#/components/schemas/Interface' } }
+            interfaces:
+              type: array
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/Interface'
+                  - type: object
+                    properties:
+                      sharedWith: { $ref: '#/components/schemas/InterfaceShares' }
+            sharedInterfaces: { type: array, description: Other hosts' interfaces shared with this host, items: { $ref: '#/components/schemas/Interface' } }
             dnsRecords: { type: array, items: { $ref: '#/components/schemas/DnsRecord' } }
+
+    InterfaceShares:
+      type: array
+      description: Hosts the address is shared with (interface_clusters); only on single-interface and host detail responses
+      items:
+        type: object
+        properties:
+          hostId: { type: integer }
+          fqdn: { type: string }
+          name: { type: string }
 
     Interface:
       type: object
@@ -2273,7 +3550,8 @@ components:
         name: { type: string }
         description: { type: [string, 'null'] }
         lastResponse: { type: [string, 'null'] }
-        natInterfaceId: { type: [integer, 'null'] }
+        natInterfaceId: { type: [integer, 'null'], description: The external NAT address's interface }
+        sharedWith: { $ref: '#/components/schemas/InterfaceShares' }
         host:
           oneOf:
             - type: 'null'
@@ -2306,6 +3584,9 @@ components:
         srvPriority: { type: integer }
         srvWeight: { type: integer }
         srvPort: { type: integer }
+        enabled: { type: boolean, description: 'false disables the record (ONA moves its begin date to 2038-01-19); true enables it now' }
+        activeFrom: { type: string, description: 'Enable from this date (YYYY-MM-DD[ HH:MM[:SS]]), e.g. a scheduled change' }
+        viewId: { type: integer, description: 'DNS view (split horizon); 0 is the default view. Child records follow their parent' }
 
     DnsRecord:
       type: object
@@ -2327,7 +3608,9 @@ components:
                 id: { type: integer }
                 fqdn: { type: string }
         notes: { type: string }
-        enabled: { type: boolean }
+        enabled: { type: boolean, description: Active now (begin date not in the future) }
+        activeFrom: { type: [string, 'null'], description: Begin date; null when disabled }
+        view: { $ref: '#/components/schemas/Ref' }
         mxPreference: { type: [integer, 'null'] }
         txt: { type: [string, 'null'] }
         srv:
@@ -2451,7 +3734,8 @@ components:
         number: { type: integer, example: 3 }
         type: { type: string, enum: [L, S, N, I, B] }
         typeName: { type: string, example: IP address list }
-        system: { type: boolean }
+        system: { type: boolean, description: Built in; can't be changed or deleted }
+        inUse: { type: integer }
 
     DhcpEntry:
       type: object
@@ -2522,6 +3806,15 @@ components:
         minimum: { type: integer }
         defaultTtl: { type: integer }
         recordCount: { type: integer }
+        servers:
+          type: array
+          description: DNS servers for the domain (see /domain-servers)
+          items:
+            type: object
+            properties:
+              id: { type: integer, description: Assignment ID }
+              server: { $ref: '#/components/schemas/HostRef' }
+              role: { type: string, enum: [master, slave, forward] }
 
     User:
       type: object
@@ -2584,6 +3877,140 @@ components:
         enabled: { type: boolean }
         hasInstaller: { type: boolean, description: The plugin has an install step (run it from the classic UI) }
         local: { type: boolean, description: Installed under www/local/plugins }
+
+    SubnetMap:
+      type: object
+      properties:
+        subnetId: { type: integer }
+        network: { type: string, example: 10.1.0.0/24 }
+        size: { type: integer, description: Number of addresses }
+        reserved: { type: array, items: { type: integer }, description: 'Offsets of the network and broadcast addresses' }
+        used:
+          type: array
+          items:
+            type: object
+            properties:
+              offset: { type: integer }
+              ip: { type: string }
+              interfaceId: { type: integer }
+              host: { oneOf: [ { $ref: '#/components/schemas/HostRef' }, { type: 'null' } ] }
+        pools:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              start: { type: string }
+              end: { type: string }
+              startOffset: { type: integer }
+              endOffset: { type: integer }
+
+    DomainServer:
+      type: object
+      properties:
+        id: { type: integer }
+        domain: { $ref: '#/components/schemas/Ref' }
+        server: { $ref: '#/components/schemas/HostRef' }
+        role: { type: string, enum: [master, slave, forward] }
+        rebuildPending: { type: boolean }
+
+    Tag:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        target:
+          type: object
+          properties:
+            kind: { type: string, enum: [host, subnet] }
+            id: { type: integer }
+
+    Message:
+      type: object
+      properties:
+        id: { type: integer }
+        target:
+          type: object
+          properties:
+            kind: { type: string, enum: [host, subnet] }
+            id: { type: integer }
+        priority: { type: integer, enum: [0, 1, 2, 3] }
+        priorityName: { type: string, enum: [info, high, medium, low] }
+        message: { type: string }
+        username: { type: string }
+        createdAt: { type: string }
+        expiration: { type: [string, 'null'] }
+        expired: { type: boolean }
+
+    Config:
+      type: object
+      properties:
+        id: { type: integer }
+        host: { $ref: '#/components/schemas/HostRef' }
+        type: { $ref: '#/components/schemas/Ref' }
+        md5: { type: string }
+        size: { type: integer, description: Bytes }
+        createdAt: { type: string }
+
+    ConfigDetail:
+      allOf:
+        - $ref: '#/components/schemas/Config'
+        - type: object
+          properties:
+            text: { type: string }
+
+    LogEntry:
+      type: object
+      properties:
+        id: { type: integer }
+        timestamp: { type: string }
+        username: { type: string }
+        remoteAddr: { type: string }
+        context: { type: string }
+        message: { type: string }
+
+    ReferenceCommon:
+      type: object
+      properties:
+        id: { type: integer }
+        inUse: { type: integer, description: Records using this row; it can only be deleted at 0 }
+        system: { type: boolean, description: Built in; can't be changed or deleted }
+
+    Manufacturer:
+      allOf:
+        - $ref: '#/components/schemas/ReferenceCommon'
+        - { type: object, properties: { name: { type: string } } }
+    Model:
+      allOf:
+        - $ref: '#/components/schemas/ReferenceCommon'
+        - { type: object, properties: { name: { type: string }, manufacturerId: { type: integer }, snmpSysObjectId: { type: string } } }
+    Role:
+      allOf:
+        - $ref: '#/components/schemas/ReferenceCommon'
+        - { type: object, properties: { name: { type: string } } }
+    DeviceTypeRecord:
+      allOf:
+        - $ref: '#/components/schemas/ReferenceCommon'
+        - type: object
+          properties:
+            modelId: { type: integer }
+            roleId: { type: integer }
+            name: { type: string, example: Cisco 2821 (router) }
+            manufacturer: { type: string }
+            model: { type: string }
+            role: { type: string }
+    SubnetType:
+      allOf:
+        - $ref: '#/components/schemas/ReferenceCommon'
+        - { type: object, properties: { name: { type: string }, shortName: { type: string }, notes: { type: string } } }
+    ConfigType:
+      allOf:
+        - $ref: '#/components/schemas/ReferenceCommon'
+        - { type: object, properties: { name: { type: string, example: IOS_CONFIG } } }
+    DnsView:
+      allOf:
+        - $ref: '#/components/schemas/ReferenceCommon'
+        - { type: object, properties: { name: { type: string, example: DEFAULT }, description: { type: string } } }
 
     SearchResult:
       type: object

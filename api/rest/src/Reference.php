@@ -179,8 +179,13 @@ class Reference
         self::checkUnique($resource, $v, null);
         if ($resource === 'dhcp-options') $v['sys_default'] = 0;
         $id = Ona::write(['advanced'], "{$s['label']} ADDED", function ($db) use ($s, $v) {
-            $id = ona_get_next_id($s['table']);
-            if (!$id) throw new ApiError(500, 'internal_error', 'Could not allocate an ID');
+            // Some sequences in ONA's install data start behind the rows it
+            // seeds (configuration_types), so skip IDs already taken.
+            for ($i = 0; $i < 1000; $i++) {
+                $id = ona_get_next_id($s['table']);
+                if (!$id) throw new ApiError(500, 'internal_error', 'Could not allocate an ID');
+                if (!Ona::select("SELECT id FROM {$s['table']} WHERE id = ?", [$id])) break;
+            }
             Ona::dbOk(db_insert_record($db, $s['table'], ['id' => $id] + $v));
             return $id;
         });
