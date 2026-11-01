@@ -161,6 +161,10 @@ docker compose exec -T api php /opt/ona/rest/tests/run.php
 cd web && npm ci && npm test && npm run typecheck
 ```
 
+CI (`.github/workflows/ci.yml`) runs both on every pull request and every
+push to `main`: the web unit tests, type check and build, and the API tests
+against the Docker stack above.
+
 The API tests cover 401 on every protected route, 403 for the
 permissionless `guest` user on every write (and on admin reads), a user
 holding only `subnet_add`, CSRF, CRUD lifecycles for every resource, error

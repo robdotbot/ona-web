@@ -1,0 +1,73 @@
+# Runs the test suites on every pull request and every push to main:
+#   web: unit tests, type check and production build
+#   api: PHP syntax check, then the REST API integration tests
+#        (api/rest/tests/run.php) against the dev stack in docker-compose.yml
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+      - name: Unit tests
+        run: npm test
+      - name: Type check
+        run: npm run typecheck
+      - name: Production build
+        run: npx vite build
+
+  api:
+    name: API tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Throwaway credentials for the CI database only.
+      ONA_DB_ROOT_PASSWORD: ci-root-${{ github.run_id }}
+      ONA_DB_PASSWORD: ci-sys-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PHP syntax check (REST API)
+        run: |
+          docker run --rm -v "$PWD/api:/src:ro" php:8.3-cli \
+            sh -c 'for f in $(find /src/rest /src/www/api -name "*.php"); do php -l "$f" > /tmp/lint || { cat /tmp/lint; exit 1; }; done'
+
+      - name: Start MariaDB and ONA
+        run: docker compose up -d --build --wait --wait-timeout 600 db api
+
+      - name: REST API integration tests
+        run: docker compose exec -T api php /opt/ona/rest/tests/run.php
+
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color --tail 300 db api
+
+      - name: Stop the containers
+        if: always()
+        run: docker compose down -v || true
