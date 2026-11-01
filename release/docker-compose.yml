@@ -1,0 +1,65 @@
+# ona-web release bundle: MariaDB, ONA (classic UI + REST API) and the web UI.
+# Started by start.bat (Windows) or start.command (macOS), which create .env
+# with random database passwords on first run.
+#   web UI:      http://localhost:${ONA_WEB_PORT:-8000}   (log in as admin / admin)
+#   classic UI:  http://localhost:${ONA_CLASSIC_PORT:-8080}
+# Both are bound to this computer only (127.0.0.1).
+name: ona-web-app
+
+x-db-env: &db-env
+  ONA_DB_HOST: db
+  ONA_DB_ROOT_PASSWORD: ${ONA_DB_ROOT_PASSWORD:?missing - run start.bat or start.command to create .env}
+  ONA_DB_USER: ona_sys
+  ONA_DB_PASSWORD: ${ONA_DB_PASSWORD:?missing - run start.bat or start.command to create .env}
+
+services:
+  db:
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${ONA_DB_ROOT_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  api:
+    build:
+      context: ./api
+      dockerfile: docker/Dockerfile
+    image: ona-web-api:local
+    restart: unless-stopped
+    environment:
+      <<: *db-env
+      ONA_DEFAULT_DOMAIN: ${ONA_DEFAULT_DOMAIN:-example.com}
+    ports:
+      - "127.0.0.1:${ONA_CLASSIC_PORT:-8080}:80"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/api/v1/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  web:
+    build: ./web
+    image: ona-web-ui:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ONA_WEB_PORT:-8000}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1/api/v1/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  db-data:

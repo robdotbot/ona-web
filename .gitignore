@@ -4,3 +4,4 @@ dist/
 *.log
 .env
 web/test-results/
+dist-release/
