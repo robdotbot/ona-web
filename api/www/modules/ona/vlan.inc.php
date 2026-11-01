@@ -359,6 +359,13 @@ EOM
     $options['set_campus'] = strtoupper(trim($options['set_campus']));
     $options['set_number'] = trim($options['set_number']);
 
+    // The number goes into SQL below; only accept a plain integer.
+    if ($options['set_number'] !== '' and !ctype_digit($options['set_number'])) {
+        $self['error'] = "ERROR => The VLAN number must be a whole number!";
+        printmsg($self['error'], 3);
+        return(array(3, $self['error'] . "\n"));
+    }
+
     // Load the record we will be modifying
     list($status, $rows, $vlan) = ona_get_vlan_record(array('id' => $options['vlan']));
 
@@ -381,7 +388,7 @@ EOM
         // Validate that there isn't already an vlan with this name
         $options['set_name'] = strtoupper(trim($options['set_name']));
 
-        list($status, $rows, $record) =  db_get_records($onadb, 'vlans', "vlan_campus_id = {$vlan['vlan_campus_id']} AND name LIKE '{$options['set_name']}' AND number != {$vlan['number']}");
+        list($status, $rows, $record) =  db_get_records($onadb, 'vlans', "vlan_campus_id = " . (int)$vlan['vlan_campus_id'] . " AND name = " . $onadb->qstr($options['set_name']) . " AND number != " . (int)$vlan['number']);
 
         if ($status or $rows) {
             printmsg("DEBUG => The VLAN ({$options['set_name']}) already exists on this campus!",3);
@@ -393,7 +400,7 @@ EOM
 
     if ($options['set_number']) {
         // Validate that there isn't already an vlan on this campus with this vlan number
-        list($status, $rows, $record) =  db_get_records($onadb, 'vlans', "vlan_campus_id = {$vlan['vlan_campus_id']} AND number = {$options['set_number']} AND name NOT LIKE '{$vlan['name']}'");
+        list($status, $rows, $record) =  db_get_records($onadb, 'vlans', "vlan_campus_id = " . (int)$vlan['vlan_campus_id'] . " AND number = " . (int)$options['set_number'] . " AND name != " . $onadb->qstr($vlan['name']));
         if ($status or $rows) {
             printmsg("DEBUG => The VLAN with the number ({$options['set_number']}) already exists on this campus!",3);
             $self['error'] = "ERROR => The vlan with the number {$options['set_number']} already exists on this campus!";
@@ -429,13 +436,13 @@ EOM
             $where='';
             $OR='';
             if(array_key_exists('number',$SET)) {
-                $where .= " number = {$SET['number']} ";
+                $where .= " number = " . (int)$SET['number'] . " ";
                 $OR=" OR ";
             }
             if(array_key_exists('name',$SET))
-                $where .= "{$OR} name LIKE '{$SET['name']}' ";
+                $where .= "{$OR} name = " . $onadb->qstr($SET['name']) . " ";
 
-            list($status, $rows, $new_campus_record) =  db_get_records($onadb, 'vlans', "vlan_campus_id = {$record['id']} AND ({$where})");
+            list($status, $rows, $new_campus_record) =  db_get_records($onadb, 'vlans', "vlan_campus_id = " . (int)$record['id'] . " AND ({$where})");
             if($rows > 0) {
                 printmsg("DEBUG => The campus ({$options['set_campus']}) already contains this VLAN name or number ({$SET['name']} {$SET['number']})!",3);
                 $self['error'] = "ERROR => The campus specified, {$options['set_campus']}, already contains this VLAN name or number ({$SET['name']} {$SET['number']})!";

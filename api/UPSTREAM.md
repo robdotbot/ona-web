@@ -40,3 +40,4 @@ Not yet proposed upstream, fixed only here:
 | Fix | Files |
 | --- | --- |
 | `startSession()` no longer logs in the `unix_username` from `?options=` when the User-Agent is `console-module-interface` (both are client supplied). It still skips the session cookie for `dcm.pl`; `dcm.php` authenticates those requests itself. | `www/include/functions_general.inc.php` |
+| SQL injection through names: `vlan_modify`, `vlan_campus_modify` and `block_modify` put the new name (and `vlan_modify` the new VLAN number) into their duplicate checks unescaped, so a name containing `'` broke the query and crafted input changed it. Strings are now quoted with `$onadb->qstr()`, `LIKE` becomes `=` (so `_`/`%` are no longer wildcards; the comparison stays case-insensitive), IDs are cast to integers and a non-numeric VLAN number is refused. | `www/modules/ona/vlan.inc.php`, `vlan_campus.inc.php`, `block.inc.php` |

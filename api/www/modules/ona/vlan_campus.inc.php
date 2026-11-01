@@ -349,7 +349,7 @@ EOM
     // If they are specifying a new name, process it.
     if ($options['set_name']) {
         // Validate that there isn't already an vlan with this name
-        list($status, $rows, $record) =  db_get_records($onadb, 'vlan_campuses', "id != {$campus['id']} AND name LIKE '{$options['set_name']}'");
+        list($status, $rows, $record) =  db_get_records($onadb, 'vlan_campuses', "id != " . (int)$campus['id'] . " AND name = " . $onadb->qstr($options['set_name']));
 
         if ($status or $rows) {
             printmsg("DEBUG => The VLAN campus ({$options['set_name']}) already exists!",3);
