@@ -1,5 +1,6 @@
-# Builds the Windows and macOS bundles, smoke-tests one with Docker (the
-# whole stack plus the REST API test suite), and publishes a GitHub release.
+# Builds the Windows, macOS and Linux bundles, smoke-tests the Linux one with
+# Docker through its own start.sh (the whole stack plus the REST API test
+# suite), checks the other two hold the same stack, and publishes a release.
 #
 # Publish: push a tag like v0.2.0, or run this workflow by hand with a version.
 # Pull requests that touch the release files only build and test.
@@ -60,22 +61,31 @@ jobs:
       - name: Build the bundles
         run: scripts/build-release.sh "$VERSION"
 
-      - name: Smoke-test the bundle with Docker
+      - name: Smoke-test the Linux bundle with Docker (via its start.sh)
+        env:
+          CI: '1'
         run: |
           mkdir smoke
-          unzip -q "dist-release/ona-web-$VERSION-macos.zip" -d smoke
+          tar -xzf "dist-release/ona-web-$VERSION-linux.tar.gz" -C smoke
           cd smoke/ona-web
-          {
-            echo "ONA_DB_ROOT_PASSWORD=$(openssl rand -hex 16)"
-            echo "ONA_DB_PASSWORD=$(openssl rand -hex 16)"
-          } > .env
-          docker compose up -d --build --wait --wait-timeout 600
+          ./start.sh
+          test -f .env
+          docker compose ps
           curl -fsS http://localhost:8000/api/v1/health
           curl -fsS http://localhost:8000/vlans | grep -q '<div id="root">'
           curl -fsS -c jar -H 'Content-Type: application/json' -d '{"username":"admin","password":"admin"}' http://localhost:8000/api/v1/auth/login >/dev/null
           curl -fsS -b jar http://localhost:8000/api/v1/vlans >/dev/null
           curl -fsS http://localhost:8080/ >/dev/null
           docker compose exec -T api php /opt/ona/rest/tests/run.php
+
+      - name: Check the Windows and macOS bundles match
+        run: |
+          # Same stack as the Linux bundle; only the launchers and README differ.
+          for os in windows macos; do
+            mkdir -p "cmp/$os" && unzip -q "dist-release/ona-web-$VERSION-$os.zip" -d "cmp/$os"
+            diff -r --exclude='*.bat' --exclude='*.command' --exclude='*.sh' --exclude=README.txt --exclude=.env --exclude=jar \
+              "cmp/$os/ona-web" smoke/ona-web
+          done
 
       - name: Container logs
         if: failure()
@@ -103,11 +113,12 @@ jobs:
 
           - **Windows:** \`ona-web-$VERSION-windows.zip\`. Unzip, then double-click \`start.bat\`.
           - **macOS:** \`ona-web-$VERSION-macos.zip\`. Unzip, then double-click \`start.command\` (the first time, right-click it and choose Open).
+          - **Linux** (any distribution): \`ona-web-$VERSION-linux.tar.gz\`. Extract with \`tar -xzf\`, then run \`./start.sh\` (or \`sudo ./start.sh\` if you're not in the \`docker\` group).
 
-          Both need [Docker Desktop](https://www.docker.com/products/docker-desktop/) running. ona-web opens at http://localhost:8000 (log in as \`admin\` / \`admin\` and change the password under Admin); the classic ONA UI is at http://localhost:8080. Both ports are only reachable from your computer. See \`README.txt\` in the zip for settings, upgrading and troubleshooting.
+          Windows and macOS need [Docker Desktop](https://www.docker.com/products/docker-desktop/) running; Linux needs [Docker Engine](https://docs.docker.com/engine/install/) with the Compose plugin (or Docker Desktop for Linux). ona-web opens at http://localhost:8000 (log in as \`admin\` / \`admin\` and change the password under Admin); the classic ONA UI is at http://localhost:8080. Both ports are only reachable from your computer. See \`README.txt\` in the download for settings, upgrading and troubleshooting.
 
           Checksums are in \`SHA256SUMS\`.
           EOF
-          gh release create "$VERSION" dist-release/*.zip dist-release/SHA256SUMS \
-            --title "ona-web $VERSION" --notes-file notes.md --target "$GITHUB_SHA" \
-            $([[ $VERSION == *-* ]] && echo --prerelease)
+          args=(--title "ona-web $VERSION" --notes-file notes.md --target "$GITHUB_SHA")
+          if [[ $VERSION == *-* ]]; then args+=(--prerelease); fi
+          gh release create "$VERSION" dist-release/*.zip dist-release/*.tar.gz dist-release/SHA256SUMS "${args[@]}"

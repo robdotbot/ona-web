@@ -106,22 +106,25 @@ Things the new UI doesn't cover (device types and models, DNS views and DNS
 server assignments, config archives, reports, DHCP option definitions) remain
 available in the classic UI, linked from the user menu.
 
-## Releases (Windows and macOS)
+## Releases (Windows, macOS and Linux)
 
-Each GitHub release has a zip per OS: the stack above with the web UI
-prebuilt and served by nginx, plus double-click launchers (`start.bat` /
-`start.command`) that create `.env` with random database passwords, run
-`docker compose up` and open http://localhost:8000. Users only need Docker
-Desktop. Ports are bound to 127.0.0.1; the bundle's own `README.txt`
-explains settings and upgrades. The sources are in `release/`.
+Each GitHub release has a download per OS: the stack above with the web UI
+prebuilt and served by nginx, plus launchers (`start.bat` / `start.command`
+to double-click, `start.sh` on Linux) that create `.env` with random
+database passwords, run `docker compose up` and open http://localhost:8000.
+Users only need Docker Desktop, or on Linux Docker Engine with the Compose
+plugin (the Linux bundle is a `.tar.gz` and works on any distribution).
+Ports are bound to 127.0.0.1; the bundle's own `README.txt` explains
+settings and upgrades. The sources are in `release/`.
 
 - Build locally: `cd web && npm ci && cd .. && scripts/build-release.sh v0.2.0`
   (writes `dist-release/`).
 - Publish: push a tag such as `v0.2.0`, or run the **Release** workflow by
-  hand. It runs the web tests, builds both zips, starts the macOS bundle with
-  Docker and runs the REST API test suite inside it, then creates the release
-  with the zips and `SHA256SUMS`. Pull requests that touch the release files
-  run everything except publishing.
+  hand. It runs the web tests, builds all three bundles, starts the Linux one
+  with Docker through its own `start.sh`, runs the REST API test suite inside
+  it, checks the Windows and macOS bundles hold the same stack, then creates
+  the release with the bundles and `SHA256SUMS`. Pull requests that touch
+  the release files run everything except publishing.
 
 ## Development
 
