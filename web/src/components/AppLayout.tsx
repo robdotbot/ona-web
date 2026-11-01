@@ -14,12 +14,13 @@ import {
   useMantineColorScheme,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconExternalLink, IconKey, IconLogout, IconMoon, IconSearch, IconSun, IconUser } from '@tabler/icons-react';
+import { IconExternalLink, IconKey, IconKeyboard, IconLogout, IconMoon, IconSearch, IconSun, IconUser } from '@tabler/icons-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useLogout, useSession } from '../api/hooks';
 import { NAV_GROUPS } from './nav';
 import { LEGACY_UI_URL } from '../lib/legacy';
 import { openChangePassword } from './ChangePasswordForm';
+import { openShortcutHelp, useKeyboardShortcuts } from './Shortcuts';
 
 
 function GlobalSearch() {
@@ -34,7 +35,8 @@ function GlobalSearch() {
       }}
     >
       <TextInput
-        placeholder="Search hosts, IPs, MACs, subnets, DNS…"
+        id="global-search"
+        placeholder="Search hosts, IPs, MACs, subnets, DNS…  ( / )"
         aria-label="Global search"
         leftSection={<IconSearch size={16} />}
         value={q}
@@ -52,6 +54,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const logout = useLogout();
   const { setColorScheme } = useMantineColorScheme();
   const scheme = useComputedColorScheme('light');
+  useKeyboardShortcuts();
 
   return (
     <AppShell
@@ -89,6 +92,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 <Menu.Label>Signed in as {session?.user.username}</Menu.Label>
                 <Menu.Item leftSection={<IconKey size={14} />} onClick={openChangePassword}>
                   Change password
+                </Menu.Item>
+                <Menu.Item leftSection={<IconKeyboard size={14} />} onClick={openShortcutHelp} rightSection={<Text size="xs" c="dimmed">?</Text>}>
+                  Keyboard shortcuts
                 </Menu.Item>
                 <Menu.Item component="a" href={LEGACY_UI_URL} target="_blank" leftSection={<IconExternalLink size={14} />}>
                   Classic ONA interface

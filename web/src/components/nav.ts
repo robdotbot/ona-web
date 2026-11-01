@@ -1,5 +1,9 @@
 import {
   IconAdjustments,
+  IconCalculator,
+  IconDatabase,
+  IconHistory,
+  IconReportAnalytics,
   IconBoxMultiple,
   IconDevices,
   IconMapPin,
@@ -40,7 +44,18 @@ export const NAV_GROUPS: { label?: string; sections: NavSection[] }[] = [
     ],
   },
   {
+    label: 'Tools',
+    sections: [
+      { path: '/reports', label: 'Reports', icon: IconReportAnalytics },
+      { path: '/tools/ipcalc', label: 'IP calculator', icon: IconCalculator },
+    ],
+  },
+  {
     label: 'Administration',
-    sections: [{ path: '/admin', label: 'Admin', icon: IconAdjustments, anyPermission: ['user_admin', 'advanced'] }],
+    sections: [
+      { path: '/reference', label: 'Reference data', icon: IconDatabase },
+      { path: '/change-log', label: 'Change log', icon: IconHistory, anyPermission: ['advanced'] },
+      { path: '/admin', label: 'Admin', icon: IconAdjustments, anyPermission: ['user_admin', 'advanced'] },
+    ],
   },
 ];

@@ -33,6 +33,7 @@ export interface Subnet {
   ipVersion: 4 | 6;
   type: Ref | null;
   usage: { used: number; total: string; percent: number };
+  tags: string[];
 }
 
 export interface SubnetDetail extends Subnet {
@@ -79,6 +80,17 @@ export interface Domain {
   minimum: number;
   defaultTtl: number;
   recordCount?: number;
+  servers: { id: number; server: HostRef; role: DnsServerRole }[];
+}
+
+export type DnsServerRole = 'master' | 'slave' | 'forward';
+
+export interface DomainServer {
+  id: number;
+  domain: Ref;
+  server: HostRef;
+  role: DnsServerRole;
+  rebuildPending: boolean;
 }
 
 export interface Host {
@@ -92,11 +104,20 @@ export interface Host {
   notes: string;
   deviceType: DeviceType | null;
   location: Location | null;
+  tags: string[];
+}
+
+export interface InterfaceShare {
+  hostId: number;
+  fqdn: string;
+  name: string;
 }
 
 export interface HostDetail extends Host {
   primaryDnsId: number;
-  interfaces: Interface[];
+  interfaces: (Interface & { sharedWith: InterfaceShare[] })[];
+  /** Other hosts' interfaces shared with this host. */
+  sharedInterfaces: Interface[];
   dnsRecords: DnsRecord[];
 }
 
@@ -109,6 +130,8 @@ export interface Interface {
   description: string | null;
   lastResponse: string | null;
   natInterfaceId: number | null;
+  /** Only on single-interface and host detail responses. */
+  sharedWith?: InterfaceShare[];
   host: { id: number; fqdn: string } | null;
   subnet: { id: number; name: string; network: string } | null;
 }
@@ -128,7 +151,11 @@ export interface DnsRecord {
   hostId: number | null;
   pointsTo: { id: number; fqdn: string } | null;
   notes: string;
+  /** Active now (its begin date is not in the future). */
   enabled: boolean;
+  /** Begin date; null when disabled. A future date means scheduled. */
+  activeFrom: string | null;
+  view: Ref;
   mxPreference: number | null;
   txt: string | null;
   srv: { priority: number; weight: number; port: number } | null;
@@ -307,4 +334,109 @@ export interface ListParams {
   sort?: string;
   q?: string;
   [filter: string]: string | number | undefined;
+}
+
+// ---- Reference data ---------------------------------------------------------
+
+interface ReferenceCommon {
+  id: number;
+  /** Records using this row; it can only be deleted at 0. */
+  inUse: number;
+  /** Built in: can't be changed or deleted. */
+  system?: boolean;
+}
+export interface Manufacturer extends ReferenceCommon { name: string }
+export interface Model extends ReferenceCommon { name: string; manufacturerId: number; snmpSysObjectId: string }
+export interface Role extends ReferenceCommon { name: string }
+export interface DeviceTypeRecord extends ReferenceCommon, Omit<DeviceType, 'id'> { modelId: number; roleId: number }
+export interface SubnetType extends ReferenceCommon { name: string; shortName: string; notes: string }
+export interface DhcpOptionRecord extends ReferenceCommon, Omit<DhcpOption, 'id' | 'system'> {}
+export interface ConfigType extends ReferenceCommon { name: string }
+export interface DnsView extends ReferenceCommon { name: string; description: string }
+
+// ---- Tags, messages ---------------------------------------------------------
+
+export type TagTarget = { hostId: number } | { subnetId: number };
+
+export interface Tag {
+  id: number;
+  name: string;
+  target: { kind: 'host' | 'subnet'; id: number };
+}
+
+export interface TagName {
+  name: string;
+  hostCount: number;
+  subnetCount: number;
+}
+
+export interface Message {
+  id: number;
+  target: { kind: 'host' | 'subnet'; id: number };
+  priority: 0 | 1 | 2 | 3;
+  priorityName: 'info' | 'high' | 'medium' | 'low';
+  message: string;
+  username: string;
+  createdAt: string;
+  expiration: string | null;
+  expired: boolean;
+}
+
+// ---- Config archives, reports, change log -----------------------------------
+
+export interface Config {
+  id: number;
+  host: HostRef;
+  type: Ref;
+  md5: string;
+  size: number;
+  createdAt: string;
+}
+
+export interface ConfigDetail extends Config {
+  text: string;
+}
+
+export interface ConfigDiff {
+  from: Config;
+  to: Config;
+  diff: string;
+}
+
+export interface Report {
+  name: string;
+  description: string;
+}
+
+export interface ReportUsage extends Report {
+  usage: string;
+}
+
+export interface ReportOutput {
+  name: string;
+  format: 'text' | 'csv';
+  output: string;
+}
+
+export interface LogEntry {
+  id: number;
+  timestamp: string;
+  username: string;
+  remoteAddr: string;
+  context: string;
+  message: string;
+}
+
+export interface SubnetMap {
+  subnetId: number;
+  network: string;
+  size: number;
+  reserved: number[];
+  used: { offset: number; ip: string; interfaceId: number; host: HostRef | null }[];
+  pools: { id: number; start: string; end: string; startOffset: number; endOffset: number }[];
+}
+
+export interface InterfaceMoveResult {
+  committed: boolean;
+  moves: { from: string; to: string; host: string }[];
 }

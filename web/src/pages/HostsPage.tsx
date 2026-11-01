@@ -8,13 +8,16 @@ import { hostColumns } from '../components/columns';
 import { openHostForm } from '../components/HostForm';
 import { useListParams } from '../lib/useListParams';
 import { useFilterInput } from '../lib/useFilterInput';
+import { HOST_FILTERS, useHostFilters } from '../components/ListFilters';
 
 export function HostsPage() {
-  const { params, update } = useListParams({ sort: 'name' });
+  const { params, update } = useListParams({ sort: 'name' }, HOST_FILTERS);
   const hosts = useHosts(params);
   const canAdd = useCan('host_add');
   const navigate = useNavigate();
   const [q, setQ] = useFilterInput(params.q, (v) => update({ q: v }));
+  const filters = useHostFilters(params, update);
+  const filtered = !!params.q || HOST_FILTERS.some((f) => params[f]);
 
   return (
     <>
@@ -31,8 +34,11 @@ export function HostsPage() {
           onChange={(e) => setQ(e.currentTarget.value)}
           w={340}
           aria-label="Filter hosts"
+          data-shortcut="list-filter"
         />
+        {filters.button}
       </Group>
+      {filters.panel}
       <DataTable
         columns={hostColumns}
         data={hosts.data?.data}
@@ -44,7 +50,7 @@ export function HostsPage() {
         onPageChange={(page) => update({ page }, false)}
         onPerPageChange={(perPage) => update({ perPage })}
         onRowClick={(h) => navigate(`/hosts/${h.id}`)}
-        empty={params.q ? 'No hosts match.' : 'No hosts yet.'}
+        empty={filtered ? 'No hosts match.' : 'No hosts yet.'}
       />
     </>
   );

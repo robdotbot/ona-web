@@ -7,8 +7,9 @@ info:
     module through `run_module()`, so ONA's own validation, permission checks
     (`auth()`) and schema apply. The exceptions are the tables ONA has no
     module for (users, groups, permissions, system configuration, custom
-    attribute types): those are written directly, with the same permission
-    checks as the classic admin windows.
+    attribute types, reference data, changing or deleting messages): those
+    are written directly, with the same permission checks as the classic
+    admin windows.
 
     **Authentication.** `POST /auth/login` with an ONA username and password
     starts a session (cookie `ONA_SESSION_ID`). Every other endpoint except

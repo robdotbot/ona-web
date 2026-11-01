@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from 'react';
 import { Alert, Anchor, Badge, Button, Card, Center, Group, Loader, SimpleGrid, Stack, Text, Title } from '@mantine/core';
-import { IconPencil, IconPlus, IconTrash } from '@tabler/icons-react';
+import { IconArrowsExchange, IconPencil, IconPlus, IconTrash } from '@tabler/icons-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { fetchNextIp, useCan, useDeleteSubnet, useInterfaces, useSubnet } from '../api/hooks';
 import { errorMessage } from '../api/client';
@@ -13,6 +13,9 @@ import { interfaceColumns } from '../components/columns';
 import { confirmDelete, notifyError, notifySuccess } from '../components/feedback';
 import { useListParams } from '../lib/useListParams';
 import { CustomAttributesPanel, DhcpOptionsPanel, DhcpPoolsPanel } from '../components/panels';
+import { MessagesPanel, TagsBar } from '../components/TagsMessages';
+import { SubnetAddressMap } from '../components/AddressMaps';
+import { openBulkMove } from '../components/InterfaceActions';
 import { NotFoundPage } from './NotFoundPage';
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -34,6 +37,7 @@ export function SubnetDetailPage() {
   const canEdit = useCan('subnet_modify');
   const canDelete = useCan('subnet_del');
   const canAddHost = useCan('host_add');
+  const canMove = useCan('interface_modify');
   const columns = useMemo(() => interfaceColumns({ showHost: true }), []);
 
   if (subnet.isPending) return <Center py="xl"><Loader /></Center>;
@@ -74,6 +78,9 @@ export function SubnetDetailPage() {
         actions={
           <>
             {canAddHost && <Button leftSection={<IconPlus size={16} />} onClick={() => addHost().catch(notifyError)}>Add host</Button>}
+            {canMove && s.ipVersion === 4 && s.interfaceCount > 0 && (
+              <Button variant="default" leftSection={<IconArrowsExchange size={16} />} onClick={() => openBulkMove({ start: s.firstIp, end: s.lastIp })}>Move addresses</Button>
+            )}
             {canEdit && <Button variant="default" leftSection={<IconPencil size={16} />} onClick={() => openSubnetForm(s)}>Edit</Button>}
             {canDelete && <Button variant="light" color="red" leftSection={<IconTrash size={16} />} onClick={onDelete}>Delete</Button>}
           </>
@@ -93,7 +100,13 @@ export function SubnetDetailPage() {
             <Text size="xs" c="dimmed">{s.usage.used} of {s.usage.total} used</Text>
           </div>
         </SimpleGrid>
+        <Stack mt="md" gap={4}>
+          <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Tags</Text>
+          <TagsBar target={{ subnetId: s.id }} />
+        </Stack>
       </Card>
+      <MessagesPanel target={{ subnetId: s.id }} />
+      <SubnetAddressMap subnet={s} />
       <Title order={4} mt="md">Addresses in use</Title>
       <DataTable
         columns={columns}

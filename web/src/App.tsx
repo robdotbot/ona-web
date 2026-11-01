@@ -20,6 +20,10 @@ import { CustomAttributesPage } from './pages/CustomAttributesPage';
 import { LocationsPage } from './pages/LocationsPage';
 import { DomainsPage } from './pages/DomainsPage';
 import { AdminPage } from './pages/AdminPage';
+import { ReferenceDataPage } from './pages/ReferenceDataPage';
+import { ChangeLogPage } from './pages/ChangeLogPage';
+import { ReportsPage } from './pages/ReportsPage';
+import { IpCalcPage } from './pages/IpCalcPage';
 
 export function App() {
   const session = useSession();
@@ -53,6 +57,10 @@ export function App() {
         <Route path="/locations" element={<LocationsPage />} />
         <Route path="/domains" element={<DomainsPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/reference" element={<ReferenceDataPage />} />
+        <Route path="/change-log" element={<ChangeLogPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/tools/ipcalc" element={<IpCalcPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </AppLayout>
