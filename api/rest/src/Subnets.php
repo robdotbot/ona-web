@@ -55,9 +55,12 @@ class Subnets
         $ip = $in->ip('ip', true);
         $mask = self::netmask($in, 'netmask', true);
         $type = $in->int('typeId', true, 1);
+        $vlanId = $in->int('vlanId', false, 1);
         $in->check();
 
-        Ona::run('subnet_add', ['name' => $name, 'ip' => $ip, 'netmask' => $mask, 'type' => $type], ['subnet_add']);
+        $opts = ['name' => $name, 'ip' => $ip, 'netmask' => $mask, 'type' => $type];
+        if ($vlanId !== null) $opts += self::vlanOptions($vlanId, 'vlan');
+        Ona::run('subnet_add', $opts, ['subnet_add']);
 
         $rows = Ona::select(self::BASE_SQL . ' WHERE s.ip_addr = ?', [Ona::ipNumeric($ip)]);
         return [201, self::format($rows[0], true)];
@@ -73,9 +76,12 @@ class Subnets
             'set_netmask' => self::netmask($in, 'netmask', false),
             'set_type' => $in->int('typeId', false, 1),
         ];
+        $vlanId = $in->int('vlanId', false, 0);
         $in->check();
         $set = array_filter($set, fn($v) => $v !== null && $v !== '');
-        if (!$set) throw ApiError::badRequest('Nothing to update; send at least one of name, ip, netmask, typeId');
+        // vlanId 0 detaches the subnet from its VLAN.
+        if ($vlanId !== null) $set += $vlanId === 0 ? ['set_vlan' => ''] : self::vlanOptions($vlanId, 'set_vlan');
+        if (!$set) throw ApiError::badRequest('Nothing to update; send at least one of name, ip, netmask, typeId, vlanId');
 
         Ona::run('subnet_modify', ['subnet' => $id] + $set, ['subnet_modify']);
         return self::get($id);
@@ -94,6 +100,13 @@ class Subnets
         self::load($id);
         $out = Ona::run('subnet_nextip', ['subnet' => $id, 'output' => 'dotted'], []);
         return [200, ['ip' => strtolower(trim($out))]];
+    }
+
+    /** subnet_add/subnet_modify find a VLAN by number within a campus. */
+    private static function vlanOptions(int $vlanId, string $key): array
+    {
+        $vlan = Vlans::load($vlanId);
+        return [$key => (int)$vlan['number'], 'campus' => (int)$vlan['vlan_campus_id']];
     }
 
     /** Accept "24", "/24" or "255.255.255.0". */

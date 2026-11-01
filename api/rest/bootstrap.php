@@ -12,6 +12,13 @@ require __DIR__ . '/src/Hosts.php';
 require __DIR__ . '/src/Interfaces.php';
 require __DIR__ . '/src/DnsRecords.php';
 require __DIR__ . '/src/Lookups.php';
+require __DIR__ . '/src/Vlans.php';
+require __DIR__ . '/src/Blocks.php';
+require __DIR__ . '/src/Dhcp.php';
+require __DIR__ . '/src/CustomAttributes.php';
+require __DIR__ . '/src/Locations.php';
+require __DIR__ . '/src/Domains.php';
+require __DIR__ . '/src/Admin.php';
 
 use OnaRest\ApiError;
 use OnaRest\Request;

@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from 'react';
-import { Alert, Badge, Button, Card, Center, Group, Loader, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Card, Center, Group, Loader, SimpleGrid, Stack, Text, Title } from '@mantine/core';
 import { IconPencil, IconPlus, IconTrash } from '@tabler/icons-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { fetchNextIp, useCan, useDeleteSubnet, useInterfaces, useSubnet } from '../api/hooks';
 import { errorMessage } from '../api/client';
 import { DataTable } from '../components/DataTable';
@@ -12,6 +12,7 @@ import { openHostForm } from '../components/HostForm';
 import { interfaceColumns } from '../components/columns';
 import { confirmDelete, notifyError, notifySuccess } from '../components/feedback';
 import { useListParams } from '../lib/useListParams';
+import { CustomAttributesPanel, DhcpOptionsPanel, DhcpPoolsPanel } from '../components/panels';
 import { NotFoundPage } from './NotFoundPage';
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -83,7 +84,7 @@ export function SubnetDetailPage() {
           <Fact label="Network">{s.network}</Fact>
           <Fact label="Netmask">{s.netmask}</Fact>
           {s.firstIp && <Fact label="Range">{s.firstIp} – {s.lastIp}</Fact>}
-          <Fact label="VLAN">{s.vlan ? `${s.vlan.name} (${s.vlan.number}, ${s.vlan.campus})` : '—'}</Fact>
+          <Fact label="VLAN">{s.vlan ? <Anchor component={Link} to={`/vlans/${s.vlan.id}`}>{s.vlan.number} {s.vlan.name} ({s.vlan.campus})</Anchor> : '—'}</Fact>
           <Fact label="Hosts">{s.hostCount}</Fact>
           <Fact label="Interfaces">{s.interfaceCount}</Fact>
           <div>
@@ -107,6 +108,9 @@ export function SubnetDetailPage() {
         onRowClick={(r) => r.host && navigate(`/hosts/${r.host.id}`)}
         empty="No addresses are in use on this subnet."
       />
+      {s.ipVersion === 4 && <DhcpPoolsPanel subnetId={s.id} />}
+      <DhcpOptionsPanel scope={{ subnetId: s.id }} />
+      <CustomAttributesPanel target={{ subnetId: s.id }} />
     </Stack>
   );
 }

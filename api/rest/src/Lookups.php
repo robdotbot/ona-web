@@ -20,20 +20,6 @@ class Lookups
         return [200, ['data' => $types]];
     }
 
-    public static function domains(): array
-    {
-        $rows = Ona::select('SELECT id FROM domains');
-        $domains = array_map(fn($r) => ['id' => (int)$r['id'], 'name' => Ona::domainName($r['id'])], $rows);
-        usort($domains, fn($a, $b) => strcmp($a['name'], $b['name']));
-        return [200, ['data' => $domains]];
-    }
-
-    public static function locations(): array
-    {
-        $rows = Ona::select('SELECT * FROM locations ORDER BY reference');
-        return [200, ['data' => array_map([self::class, 'formatLocation'], $rows)]];
-    }
-
     private static array $deviceTypes = [];
 
     /** "Manufacturer Model (role)", as the legacy UI shows device types. */
@@ -53,15 +39,6 @@ class Lookups
         ];
     }
 
-    public static function formatLocation(array $l): array
-    {
-        return [
-            'id' => (int)$l['id'],
-            'reference' => $l['reference'],
-            'name' => $l['name'],
-            'city' => $l['city'] ?? null,
-        ];
-    }
 }
 
 /** GET /search?q= — the API version of the legacy quick search. */

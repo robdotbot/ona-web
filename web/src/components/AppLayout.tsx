@@ -2,7 +2,6 @@ import { useState, type ReactNode } from 'react';
 import {
   ActionIcon,
   AppShell,
-  Badge,
   Burger,
   Group,
   Menu,
@@ -18,9 +17,9 @@ import { useDisclosure } from '@mantine/hooks';
 import { IconExternalLink, IconLogout, IconMoon, IconSearch, IconSun, IconUser } from '@tabler/icons-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useLogout, useSession } from '../api/hooks';
-import { NAV_SECTIONS, PLANNED_SECTIONS } from './nav';
+import { NAV_GROUPS } from './nav';
+import { LEGACY_UI_URL } from '../lib/legacy';
 
-const LEGACY_UI_URL = import.meta.env.VITE_LEGACY_UI_URL ?? 'http://localhost:8080/';
 
 function GlobalSearch() {
   const navigate = useNavigate();
@@ -102,33 +101,32 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
       <AppShell.Navbar p="sm">
         <AppShell.Section grow component={ScrollArea}>
-          {NAV_SECTIONS.map((s) => (
-            <NavLink
-              key={s.path}
-              component={Link}
-              to={s.path}
-              label={s.label}
-              leftSection={<s.icon size={18} />}
-              active={pathname.startsWith(s.path)}
-              onClick={close}
-            />
-          ))}
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase" mt="lg" mb={4} px="sm">
-            Coming soon
-          </Text>
-          {PLANNED_SECTIONS.map((s) => (
-            <NavLink
-              key={s.path}
-              component={Link}
-              to={s.path}
-              label={s.label}
-              leftSection={<s.icon size={18} />}
-              rightSection={<Badge size="xs" variant="light" color="gray">soon</Badge>}
-              active={pathname.startsWith(s.path)}
-              c="dimmed"
-              onClick={close}
-            />
-          ))}
+          {NAV_GROUPS.map((g, i) => {
+            const sections = g.sections.filter(
+              (s) => !s.anyPermission || s.anyPermission.some((p) => session?.permissions.includes(p)),
+            );
+            if (!sections.length) return null;
+            return (
+              <div key={g.label ?? i}>
+                {g.label && (
+                  <Text size="xs" fw={600} c="dimmed" tt="uppercase" mt="lg" mb={4} px="sm">
+                    {g.label}
+                  </Text>
+                )}
+                {sections.map((s) => (
+                  <NavLink
+                    key={s.path}
+                    component={Link}
+                    to={s.path}
+                    label={s.label}
+                    leftSection={<s.icon size={18} />}
+                    active={pathname.startsWith(s.path)}
+                    onClick={close}
+                  />
+                ))}
+              </div>
+            );
+          })}
         </AppShell.Section>
       </AppShell.Navbar>
 

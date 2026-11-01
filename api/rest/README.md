@@ -20,8 +20,10 @@ api/
    at global scope (DB connection, `sys_config`, ONA session), and discards
    anything ONA printed. Only `Response::json()` writes to the client.
 2. `Router` matches the path against `routes.php`. Path parameters only match
-   digits. Routes are closures in a fixed table; nothing from the request is
-   ever used to choose a file to include or a function to call.
+   digits, except `{key}` (system configuration names and plugin names),
+   which matches `[A-Za-z0-9_.-]` without slashes. Routes are closures in a
+   fixed table; nothing from the request is ever used to choose a file to
+   include or a function to call.
 3. Unless a route is public (`/health`, `/openapi.yaml`, `/auth/login`,
    `/auth/logout`), `Auth::requireUser()` runs, and for non-GET requests
    `Auth::checkCsrf()`.
@@ -32,8 +34,15 @@ api/
    checks the permissions with ONA's `auth()` (clean 403), then calls
    `run_module()` so the module does its own validation, its own `auth()`
    check and runs in ONA's transaction. Module failures become JSON errors:
-   "Permission denied" → 403, conflicts → 409, anything else → 422 with the
-   module's output lines in `details.output`.
+   "Permission denied" → 403, conflicts (duplicates, overlaps, records still
+   in use) → 409, anything else → 422 with the module's output lines in
+   `details.output`.
+6. ONA has no modules for users, groups, permissions, `sys_config` and
+   custom attribute types. For those, `Ona::write()` checks the same
+   permission the legacy admin window checks (`user_admin` or `advanced`) and
+   runs `db_insert_record()` / `db_update_record()` / `db_delete_records()`
+   (bound values) in one transaction. Reads of users, groups, permissions,
+   system configuration and plugins need that permission too.
 
 | Endpoint | ONA module | Permission(s) |
 | --- | --- | --- |
@@ -49,6 +58,31 @@ api/
 | `POST /dns-records` | `dns_record_add` | `host_add` |
 | `PATCH /dns-records/{id}` | `dns_record_modify` | `host_modify` |
 | `DELETE /dns-records/{id}` | `dns_record_del` | `host_del` |
+| `POST /vlan-campuses` | `vlan_campus_add` | `vlan_add` |
+| `PATCH /vlan-campuses/{id}` | `vlan_campus_modify` | `vlan_modify` |
+| `DELETE /vlan-campuses/{id}` | `vlan_campus_del` | `vlan_del` |
+| `POST /vlans` | `vlan_add` | `vlan_add` |
+| `PATCH /vlans/{id}` | `vlan_modify` | `vlan_modify` |
+| `DELETE /vlans/{id}` | `vlan_del` | `vlan_del` |
+| `POST/PATCH/DELETE /blocks…` | `block_add` / `_modify` / `_del` | `advanced` |
+| `POST /dhcp-servers` | `dhcp_server_add` | `advanced` |
+| `DELETE /dhcp-servers/{id}/subnets/{subnetId}` | `dhcp_server_del` | `advanced` |
+| `POST/PATCH/DELETE /dhcp-failover-groups…` | `dhcp_failover_group_add` / `_modify` / `_del` | `advanced` |
+| `POST/PATCH/DELETE /dhcp-pools…` | `dhcp_pool_add` / `_modify` / `_del` | `advanced` |
+| `POST/PATCH/DELETE /dhcp-entries…` | `dhcp_entry_add` / `_modify` / `_del` | `advanced` |
+| `POST /custom-attributes` | `custom_attribute_add` | `custom_attribute_add` |
+| `PATCH /custom-attributes/{id}` | `custom_attribute_modify` | `custom_attribute_modify` |
+| `DELETE /custom-attributes/{id}` | `custom_attribute_del` | `custom_attribute_del` |
+| `POST/PATCH /locations…` | `location_add` / `location_modify` | `location_add` |
+| `DELETE /locations/{id}` | `location_del` | `location_del` |
+| `POST/PATCH/DELETE /domains…` | `domain_add` / `_modify` / `_del` | `advanced` |
+| `/custom-attribute-types…` writes | (direct) | `advanced` |
+| `/users…`, `/groups…`, `GET /permissions` | (direct) | `user_admin` |
+| `/sys-config…` | (direct) | `advanced` |
+| `GET /plugins`, `PATCH /plugins/{key}` | (`plugin_disabled` marker file) | `advanced` |
+
+`PATCH /subnets/{id}` also takes `vlanId` (0 detaches), passed to
+`subnet_modify` as the VLAN number plus campus.
 
 The permissions are the ones the ONA modules themselves check (for DNS
 records ONA uses the `host_*` permissions, not the `dns_record_*` ones).
@@ -84,15 +118,52 @@ fixes themselves are also applied to the legacy code; see `../UPSTREAM.md`.
 - **Option escaping.** Module options are passed as an escaped string, because
   `run_module()` corrupts array values containing `=` or `&`.
 
-Known gaps, unchanged from ONA: local passwords are unsalted MD5, and there
-is no login rate limiting.
+- **Names that reach unescaped SQL.** `vlan_modify`, `vlan_campus_modify`
+  and `block_modify` put the new name into a `LIKE '…'` clause without
+  escaping it. The API only accepts names for VLANs, campuses, blocks and
+  locations from a safe character set (`Input::label()`: letters, digits,
+  spaces and `. _ : / # ( ) + -`).
+- **Plugins** are found by listing the plugin directories; a plugin name
+  from the URL is only used if it matches a listed directory, and
+  `plugin_info.php` is parsed as text, never included.
+
+Known gaps, unchanged from ONA: local passwords are unsalted MD5 (the user
+endpoints write them that way so ONA can check them), and there is no login
+rate limiting.
+
+## ONA module quirks the API works around
+
+- `location_modify` reads the new longitude only when `set_logitude` (sic)
+  is sent; the API sends both spellings.
+- `domain_modify` clears the parent domain and `dhcp_pool_modify` clears the
+  failover group unless they are resent; the API always resends them.
+- `dhcp_failover_group_modify` writes the old server IDs back when asked to
+  change servers, and fails when nothing changes. The API rejects server
+  changes (delete and re-create the group) and only sends changed settings.
+- `host_modify` can't clear a host's location (in the legacy UI either);
+  `PATCH /hosts/{id}` with `locationId: 0` clears it on the device record.
+- Several `*_modify` modules print their usage text unless some `set_*`
+  option is truthy, or fail when nothing changed; the API only sends real
+  changes and adds a no-op companion where needed (see the comments in
+  `src/`).
 
 ## Adding a resource
 
-1. Add a class in `src/` (copy `Subnets.php`): `list()` with `Paging`,
-   `get()`, and `create()`/`update()`/`delete()` that call `Ona::run()` with
+1. Add a class in `src/` (copy `Subnets.php` or `Blocks.php`): `list()`
+   with `Paging`, `get()`, and `create()`/`update()`/`delete()` that check
+   the permission first (`Auth::requirePerm()`), then call `Ona::run()` with
    the module and the permission the module checks.
-2. `require` it in `bootstrap.php`, register its routes in `routes.php`
-   (replacing its entry in the "planned" 501 list), and document it in
-   `openapi.yaml`.
-3. Add it to the route table and permission tests in `tests/run.php`.
+2. `require` it in `bootstrap.php`, register its routes in `routes.php`,
+   and document it in `openapi.yaml`.
+3. Add it to the route table, the guest permission test and a lifecycle
+   test in `tests/run.php`.
+
+A resource that isn't ready yet can be registered to answer
+`501 not_implemented`, so clients can tell "not built yet" from "no such
+thing":
+
+```php
+$r->add('GET', '/things', function () {
+    throw new ApiError(501, 'not_implemented', 'This resource is planned but not implemented yet');
+});
+```

@@ -3,7 +3,8 @@ import { ActionIcon, Anchor, Badge, Group, Text, Tooltip } from '@mantine/core';
 import { IconPencil, IconTrash } from '@tabler/icons-react';
 import { createColumnHelper } from '@tanstack/react-table';
 import { Link } from 'react-router-dom';
-import type { DnsRecord, Host, Interface } from '../api/types';
+import type { DnsRecord, Host, Interface, Subnet } from '../api/types';
+import { UsageBar } from './UsageBar';
 import type { MouseEvent } from 'react';
 
 const stop = (e: MouseEvent) => e.stopPropagation();
@@ -80,4 +81,13 @@ export const dnsColumns = [
   d.accessor((r) => dnsValue(r), { id: 'value', header: 'Value', cell: (c) => <Text ff="monospace" size="sm" lineClamp={1}>{c.getValue()}</Text> }),
   d.accessor('ttl', { header: 'TTL', cell: (c) => c.getValue() || <Text span c="dimmed" size="sm">default</Text> }),
   d.accessor('notes', { header: 'Notes', cell: (c) => <Text size="sm" lineClamp={1}>{c.getValue()}</Text> }),
+];
+
+const sc = createColumnHelper<Subnet>();
+/** Unsorted subnet columns for subnets embedded in another record (VLAN, block, DHCP server). */
+export const subnetColumns = [
+  sc.accessor('name', { header: 'Subnet', cell: (c) => <Anchor component={Link} to={`/subnets/${c.row.original.id}`} fw={500} onClick={stop}>{c.getValue()}</Anchor> }),
+  sc.accessor('network', { header: 'Network', cell: (c) => <Text ff="monospace" size="sm">{c.getValue()}</Text> }),
+  sc.accessor((s) => s.type?.name ?? '', { id: 'type', header: 'Type' }),
+  sc.accessor('usage', { header: 'IP usage', cell: (c) => <UsageBar usage={c.getValue()} /> }),
 ];

@@ -1,11 +1,11 @@
-# ona-next
+# ona-web
 
 A modern web interface for [OpenNetAdmin](https://github.com/opennetadmin/ona)
 (ONA), backed by a new JSON REST API that wraps ONA's own modules. The
 classic ONA interface keeps working alongside it on the same database.
 
 ```
-ona-next/
+ona-web/
 ├── api/                 ONA (upstream copy) + the REST API in api/rest
 ├── web/                 React + TypeScript single-page app
 └── docker-compose.yml   MariaDB, PHP 8.3/Apache (ONA + API), Vite dev server
@@ -34,9 +34,8 @@ container prints `VITE … ready`:
 useful for seeing read-only behaviour.
 
 On a fresh install, adding a PTR record needs a reverse domain
-(e.g. `10.in-addr.arpa`). The MVP UI can't create domains yet, so either leave
-"Also add a PTR record" unchecked (the default) or add the domain in the
-classic UI.
+(e.g. `10.in-addr.arpa`). Add it under **Domains** first, or leave
+"Also add a PTR record" unchecked (the default).
 
 To start over with an empty database: `docker compose down -v`.
 
@@ -55,8 +54,11 @@ note that `dcm.pl` now needs `-l`/`-p` credentials), plus `api/rest/` and the si
 shares ONA's DB connection, `sys_config`, users, groups and session store.
 Reads use ONA's `functions_db` helpers; every write calls the matching DCM
 module through `run_module()` (`subnet_add`, `host_modify`,
-`dns_record_del`, …), so ONA's validation, `auth()` permission checks and
-schema rules are reused, not reimplemented. Details, the endpoint →
+`dns_record_del`, `vlan_add`, `dhcp_pool_modify`, …), so ONA's validation,
+`auth()` permission checks and schema rules are reused, not reimplemented.
+The only exceptions are the tables ONA has no module for (users, groups,
+permissions, system configuration, custom attribute types), which the API
+writes directly under the same permissions as the classic admin windows. Details, the endpoint →
 module → permission table and the security notes are in
 [`api/rest/README.md`](api/rest/README.md).
 
@@ -84,20 +86,25 @@ that to the API container, so the session cookie stays first-party. List
 filters, sort and page live in the URL. Buttons for writes are hidden when the
 session lacks the ONA permission, and the API enforces it regardless.
 
-## MVP scope
+## Scope
 
-Done: login/logout; subnets (list, view, add, edit, delete, IP usage, next
-free IP); hosts and their interfaces (CRUD); DNS records (CRUD, all ONA
-types); global search (IP, MAC, names; jumps straight to an exact match).
+- **Subnets** (list, view, add, edit, delete, IP usage, next free IP, VLAN
+  assignment), **hosts** and their **interfaces**, **DNS records** (all ONA
+  types), and global search (IP, MAC, names; jumps straight to an exact match).
+- **VLANs** and VLAN campuses, with the subnets in each VLAN.
+- **Blocks**: named address ranges, with the subnets inside them.
+- **DHCP**: servers and the subnets they serve, failover groups, pools (on
+  the subnet page too), and options set globally or per subnet, host or server.
+- **Custom attributes**: attribute types (with validation rules) and values
+  on hosts, subnets and VLANs.
+- **Locations** and **domains** (add, edit, delete).
+- **Admin**: users, groups and their permissions (`user_admin`), system
+  configuration and plugins (`advanced`). Plugin install steps still run in
+  the classic UI.
 
-Not yet: VLANs, blocks, DHCP, custom attributes, locations/domains editing,
-admin screens and plugins. Each has a placeholder:
-
-- **Web:** "Coming soon" entries in the sidebar (`web/src/components/nav.ts`,
-  `PLANNED_SECTIONS`) with a page linking to the classic UI.
-- **API:** the matching paths answer `501 not_implemented`
-  (`api/rest/routes.php`, bottom). `api/rest/README.md` lists the steps to add
-  one.
+Things the new UI doesn't cover (device types and models, DNS views and DNS
+server assignments, config archives, reports, DHCP option definitions) remain
+available in the classic UI, linked from the user menu.
 
 ## Development
 
@@ -117,9 +124,9 @@ cd web && npm ci && npm test && npm run typecheck
 ```
 
 The API tests cover 401 on every protected route, 403 for the
-permissionless `guest` user on every write, a user holding only
-`subnet_add`, CSRF, CRUD lifecycles, error codes, search, output escaping
-and that every route is in the spec. See `api/rest/tests/README.md`.
+permissionless `guest` user on every write (and on admin reads), a user
+holding only `subnet_add`, CSRF, CRUD lifecycles for every resource, error
+codes, search, output escaping and that every route is in the spec. See `api/rest/tests/README.md`.
 
 To run the web app outside Docker against the API container:
 `cd web && npm run dev` (it proxies `/api` to `http://localhost:8080`).

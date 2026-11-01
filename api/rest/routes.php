@@ -30,8 +30,6 @@ $r->add('GET', '/auth/session', fn() => [200, Auth::session()]);
 $r->add('GET', '/search', fn(Request $req) => Search::run($req));
 $r->add('GET', '/subnet-types', fn() => Lookups::subnetTypes());
 $r->add('GET', '/device-types', fn() => Lookups::deviceTypes());
-$r->add('GET', '/domains', fn() => Lookups::domains());
-$r->add('GET', '/locations', fn() => Lookups::locations());
 
 // --- Subnets ---------------------------------------------------------------
 $r->add('GET', '/subnets', fn(Request $req) => Subnets::list($req));
@@ -62,13 +60,88 @@ $r->add('GET', '/dns-records/{id}', fn(Request $req, array $p) => DnsRecords::ge
 $r->add('PATCH', '/dns-records/{id}', fn(Request $req, array $p) => DnsRecords::update($req, $p['id']));
 $r->add('DELETE', '/dns-records/{id}', fn(Request $req, array $p) => DnsRecords::delete($p['id']));
 
-// --- Not yet implemented ---------------------------------------------------
-// Planned resources, following the same pattern (a class in src/ whose writes
-// go through Ona::run() with the module's permission). Until then they answer
-// 501 so clients can tell "not built yet" from "no such thing".
-foreach (['/vlans', '/vlan-campuses', '/blocks', '/dhcp-pools', '/dhcp-servers', '/dhcp-options',
-          '/custom-attributes', '/locations/{id}', '/domains/{id}', '/users', '/groups', '/sys-config'] as $planned) {
-    $r->add('GET', $planned, function () {
-        throw new ApiError(501, 'not_implemented', 'This resource is planned but not implemented yet');
-    });
-}
+// --- VLANs ------------------------------------------------------------------
+$r->add('GET', '/vlan-campuses', fn(Request $req) => VlanCampuses::list($req));
+$r->add('POST', '/vlan-campuses', fn(Request $req) => VlanCampuses::create($req));
+$r->add('GET', '/vlan-campuses/{id}', fn(Request $req, array $p) => VlanCampuses::get($p['id']));
+$r->add('PATCH', '/vlan-campuses/{id}', fn(Request $req, array $p) => VlanCampuses::update($req, $p['id']));
+$r->add('DELETE', '/vlan-campuses/{id}', fn(Request $req, array $p) => VlanCampuses::delete($p['id']));
+$r->add('GET', '/vlans', fn(Request $req) => Vlans::list($req));
+$r->add('POST', '/vlans', fn(Request $req) => Vlans::create($req));
+$r->add('GET', '/vlans/{id}', fn(Request $req, array $p) => Vlans::get($p['id']));
+$r->add('PATCH', '/vlans/{id}', fn(Request $req, array $p) => Vlans::update($req, $p['id']));
+$r->add('DELETE', '/vlans/{id}', fn(Request $req, array $p) => Vlans::delete($p['id']));
+
+// --- Blocks ----------------------------------------------------------------
+$r->add('GET', '/blocks', fn(Request $req) => Blocks::list($req));
+$r->add('POST', '/blocks', fn(Request $req) => Blocks::create($req));
+$r->add('GET', '/blocks/{id}', fn(Request $req, array $p) => Blocks::get($p['id']));
+$r->add('PATCH', '/blocks/{id}', fn(Request $req, array $p) => Blocks::update($req, $p['id']));
+$r->add('DELETE', '/blocks/{id}', fn(Request $req, array $p) => Blocks::delete($p['id']));
+
+// --- DHCP ------------------------------------------------------------------
+$r->add('GET', '/dhcp-servers', fn(Request $req) => DhcpServers::list($req));
+$r->add('POST', '/dhcp-servers', fn(Request $req) => DhcpServers::addSubnet($req));
+$r->add('GET', '/dhcp-servers/{id}', fn(Request $req, array $p) => DhcpServers::get($p['id']));
+$r->add('DELETE', '/dhcp-servers/{id}/subnets/{subnetId}', fn(Request $req, array $p) => DhcpServers::removeSubnet($p['id'], $p['subnetId']));
+$r->add('GET', '/dhcp-failover-groups', fn(Request $req) => DhcpFailoverGroups::list($req));
+$r->add('POST', '/dhcp-failover-groups', fn(Request $req) => DhcpFailoverGroups::create($req));
+$r->add('GET', '/dhcp-failover-groups/{id}', fn(Request $req, array $p) => DhcpFailoverGroups::get($p['id']));
+$r->add('PATCH', '/dhcp-failover-groups/{id}', fn(Request $req, array $p) => DhcpFailoverGroups::update($req, $p['id']));
+$r->add('DELETE', '/dhcp-failover-groups/{id}', fn(Request $req, array $p) => DhcpFailoverGroups::delete($p['id']));
+$r->add('GET', '/dhcp-pools', fn(Request $req) => DhcpPools::list($req));
+$r->add('POST', '/dhcp-pools', fn(Request $req) => DhcpPools::create($req));
+$r->add('GET', '/dhcp-pools/{id}', fn(Request $req, array $p) => DhcpPools::get($p['id']));
+$r->add('PATCH', '/dhcp-pools/{id}', fn(Request $req, array $p) => DhcpPools::update($req, $p['id']));
+$r->add('DELETE', '/dhcp-pools/{id}', fn(Request $req, array $p) => DhcpPools::delete($p['id']));
+$r->add('GET', '/dhcp-options', fn() => DhcpOptions::list());
+$r->add('GET', '/dhcp-entries', fn(Request $req) => DhcpEntries::list($req));
+$r->add('POST', '/dhcp-entries', fn(Request $req) => DhcpEntries::create($req));
+$r->add('GET', '/dhcp-entries/{id}', fn(Request $req, array $p) => DhcpEntries::get($p['id']));
+$r->add('PATCH', '/dhcp-entries/{id}', fn(Request $req, array $p) => DhcpEntries::update($req, $p['id']));
+$r->add('DELETE', '/dhcp-entries/{id}', fn(Request $req, array $p) => DhcpEntries::delete($p['id']));
+
+// --- Custom attributes -----------------------------------------------------
+$r->add('GET', '/custom-attribute-types', fn() => CustomAttributeTypes::list());
+$r->add('POST', '/custom-attribute-types', fn(Request $req) => CustomAttributeTypes::create($req));
+$r->add('GET', '/custom-attribute-types/{id}', fn(Request $req, array $p) => CustomAttributeTypes::get($p['id']));
+$r->add('PATCH', '/custom-attribute-types/{id}', fn(Request $req, array $p) => CustomAttributeTypes::update($req, $p['id']));
+$r->add('DELETE', '/custom-attribute-types/{id}', fn(Request $req, array $p) => CustomAttributeTypes::delete($p['id']));
+$r->add('GET', '/custom-attributes', fn(Request $req) => CustomAttributes::list($req));
+$r->add('POST', '/custom-attributes', fn(Request $req) => CustomAttributes::create($req));
+$r->add('GET', '/custom-attributes/{id}', fn(Request $req, array $p) => CustomAttributes::get($p['id']));
+$r->add('PATCH', '/custom-attributes/{id}', fn(Request $req, array $p) => CustomAttributes::update($req, $p['id']));
+$r->add('DELETE', '/custom-attributes/{id}', fn(Request $req, array $p) => CustomAttributes::delete($p['id']));
+
+// --- Locations & domains ---------------------------------------------------
+$r->add('GET', '/locations', fn() => Locations::list());
+$r->add('POST', '/locations', fn(Request $req) => Locations::create($req));
+$r->add('GET', '/locations/{id}', fn(Request $req, array $p) => Locations::get($p['id']));
+$r->add('PATCH', '/locations/{id}', fn(Request $req, array $p) => Locations::update($req, $p['id']));
+$r->add('DELETE', '/locations/{id}', fn(Request $req, array $p) => Locations::delete($p['id']));
+$r->add('GET', '/domains', fn() => Domains::list());
+$r->add('POST', '/domains', fn(Request $req) => Domains::create($req));
+$r->add('GET', '/domains/{id}', fn(Request $req, array $p) => Domains::get($p['id']));
+$r->add('PATCH', '/domains/{id}', fn(Request $req, array $p) => Domains::update($req, $p['id']));
+$r->add('DELETE', '/domains/{id}', fn(Request $req, array $p) => Domains::delete($p['id']));
+
+// --- Admin -----------------------------------------------------------------
+// Reads here need the admin permission too (user_admin / advanced), as in ONA.
+$r->add('GET', '/users', fn() => Users::list());
+$r->add('POST', '/users', fn(Request $req) => Users::create($req));
+$r->add('GET', '/users/{id}', fn(Request $req, array $p) => Users::get($p['id']));
+$r->add('PATCH', '/users/{id}', fn(Request $req, array $p) => Users::update($req, $p['id']));
+$r->add('DELETE', '/users/{id}', fn(Request $req, array $p) => Users::delete($p['id']));
+$r->add('GET', '/groups', fn() => Groups::list());
+$r->add('POST', '/groups', fn(Request $req) => Groups::create($req));
+$r->add('GET', '/groups/{id}', fn(Request $req, array $p) => Groups::get($p['id']));
+$r->add('PATCH', '/groups/{id}', fn(Request $req, array $p) => Groups::update($req, $p['id']));
+$r->add('DELETE', '/groups/{id}', fn(Request $req, array $p) => Groups::delete($p['id']));
+$r->add('GET', '/permissions', fn() => Permissions::list());
+$r->add('GET', '/sys-config', fn() => SysConfig::list());
+$r->add('POST', '/sys-config', fn(Request $req) => SysConfig::create($req));
+$r->add('GET', '/sys-config/{key}', fn(Request $req, array $p) => SysConfig::get($p['key']));
+$r->add('PATCH', '/sys-config/{key}', fn(Request $req, array $p) => SysConfig::update($req, $p['key']));
+$r->add('DELETE', '/sys-config/{key}', fn(Request $req, array $p) => SysConfig::delete($p['key']));
+$r->add('GET', '/plugins', fn() => Plugins::list());
+$r->add('PATCH', '/plugins/{key}', fn(Request $req, array $p) => Plugins::update($req, $p['key']));
