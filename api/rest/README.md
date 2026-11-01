@@ -16,7 +16,10 @@ api/
 
 ## How a request runs
 
-1. `bootstrap.php` buffers all output, includes ONA's `config/config.inc.php`
+1. `bootstrap.php` drops an `ona_context_name` cookie that names no
+   configured DB context (ONA would otherwise skip connecting for that
+   request, which looked like a database outage), buffers all output,
+   includes ONA's `config/config.inc.php`
    at global scope (DB connection, `sys_config`, ONA session), and discards
    anything ONA printed. Only `Response::json()` writes to the client.
 2. `Router` matches the path against `routes.php`. Path parameters only match

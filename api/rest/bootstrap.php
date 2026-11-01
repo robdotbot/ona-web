@@ -50,6 +50,21 @@ if (!file_exists("{$base}/local/config/database_settings.inc.php") || file_exist
     Response::error(new ApiError(503, 'not_installed', 'ONA is not installed yet'));
 }
 
+// ONA picks the database from the client's ona_context_name cookie and, for
+// a name that isn't configured (e.g. a cookie left by another ONA install on
+// the same host), doesn't connect at all for that request, which would look
+// like a database outage. Drop an unknown name so ONA uses its default
+// context (config.inc.php then also resets the cookie).
+$contextNames = (function (string $file): array {
+    $ona_contexts = [];
+    include $file;
+    return is_array($ona_contexts) ? array_keys($ona_contexts) : [];
+})("{$base}/local/config/database_settings.inc.php");
+if (isset($_COOKIE['ona_context_name']) && !in_array($_COOKIE['ona_context_name'], $contextNames, true)) {
+    unset($_COOKIE['ona_context_name']);
+}
+unset($contextNames);
+
 // Sets $conf, $self, $onadb, loads sys_config and starts the ONA session.
 require_once $base . '/config/config.inc.php';
 if (!isset($onadb) || !$onadb || !$onadb->IsConnected()) {

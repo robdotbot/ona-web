@@ -871,6 +871,17 @@ test('errors: 400 for bad perPage / sort / page / body', function () {
     eq(200, $r['meta']['perPage'], 'perPage=200 allowed');
 });
 
+test('errors: an unknown ona_context_name cookie falls back to the default context, not 503', function () {
+    $c = new Client($GLOBALS['BASE'], 'stale-context');
+    $r = $c->get('/health', ['Cookie' => 'ona_context_name=NO_SUCH_CONTEXT']);
+    expectStatus($r, 200, null, 'health');
+    // The response resets the stale cookie (read from the client's cookie jar).
+    $jar = (string)file_get_contents((new ReflectionProperty($c, 'jar'))->getValue($c));
+    check((bool)preg_match('/\tona_context_name\tDEFAULT\s*$/m', $jar), 'stale cookie not reset to DEFAULT');
+    $r = $c->req('POST', '/auth/login', ['username' => ADMIN_USER, 'password' => ADMIN_PASS], ['Cookie' => 'ona_context_name=NO_SUCH_CONTEXT']);
+    expectStatus($r, 200, null, 'login');
+});
+
 test('errors: 405 for wrong method (with Allow header)', function () {
     $a = admin();
     $r = $a->req('PUT', '/subnets/1', ['name' => 'x']);
