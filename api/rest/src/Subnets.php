@@ -157,6 +157,105 @@ class Subnets
         ]];
     }
 
+    /**
+     * GET /subnets/{id}/addresses?status=all|used|free: every address of a
+     * subnet in order, paged (the classic "List by IP"), each with its status:
+     * used (an interface), pool (in a DHCP pool), reserved (IPv4 network /
+     * broadcast) or free. Works for any size, IPv6 too: totals beyond PHP's
+     * integer range come back as strings.
+     */
+    public static function addresses(Request $req, int $id): array
+    {
+        $s = self::load($id);
+        $paging = new Paging($req, 256, 1000);
+        $status = $req->queryString('status', 'all');
+        if (!in_array($status, ['all', 'used', 'free'], true)) throw ApiError::badRequest('status must be all, used or free');
+
+        $v4 = Ona::isIpv4($s['ip_addr']);
+        $bits = $v4 ? 32 : 128;
+        $base = gmp_init((string)$s['ip_addr']);
+        $size = gmp_pow(2, $bits - Ona::cidr($s['ip_mask']));
+        $used = Ona::select('SELECT i.id, i.ip_addr, i.host_id, i.name, d.name AS host_name, d.domain_id
+            FROM interfaces i LEFT JOIN hosts h ON h.id = i.host_id LEFT JOIN dns d ON d.id = h.primary_dns_id
+            WHERE i.subnet_id = ? ORDER BY i.ip_addr', [$id]);
+        $pools = Ona::select('SELECT id, ip_addr_start, ip_addr_end FROM dhcp_pools WHERE subnet_id = ? ORDER BY ip_addr_start', [$id]);
+        $byOffset = [];
+        foreach ($used as $u) $byOffset[gmp_strval(gmp_sub(gmp_init((string)$u['ip_addr']), $base))] = $u;
+        $poolRanges = array_map(fn($p) => [gmp_sub(gmp_init((string)$p['ip_addr_start']), $base), gmp_sub(gmp_init((string)$p['ip_addr_end']), $base), (int)$p['id']], $pools);
+        $reserved = $v4 && gmp_cmp($size, 4) >= 0 ? ['0', gmp_strval(gmp_sub($size, 1))] : [];
+
+        $row = function (\GMP $off) use ($base, $byOffset, $poolRanges, $reserved): array {
+            $key = gmp_strval($off);
+            $out = ['ip' => Ona::ipText(gmp_strval(gmp_add($base, $off))), 'status' => 'free', 'interfaceId' => null, 'host' => null, 'poolId' => null];
+            if (isset($byOffset[$key])) {
+                $u = $byOffset[$key];
+                $out['status'] = 'used';
+                $out['interfaceId'] = (int)$u['id'];
+                if ($u['host_id']) $out['host'] = ['id' => (int)$u['host_id'], 'fqdn' => ($u['host_name'] ? $u['host_name'] . '.' : '') . Ona::domainName($u['domain_id'])];
+            } elseif (in_array($key, $reserved, true)) {
+                $out['status'] = 'reserved';
+            } else {
+                foreach ($poolRanges as [$a, $b, $pid]) {
+                    if (gmp_cmp($off, $a) >= 0 && gmp_cmp($off, $b) <= 0) { $out['status'] = 'pool'; $out['poolId'] = $pid; break; }
+                }
+            }
+            return $out;
+        };
+
+        $first = gmp_mul($paging->page - 1, $paging->perPage);
+        $data = [];
+        if ($status === 'used') {
+            $total = gmp_init(count($used));
+            foreach (array_slice($used, $paging->offset(), $paging->perPage) as $u) {
+                $data[] = $row(gmp_sub(gmp_init((string)$u['ip_addr']), $base));
+            }
+        } elseif ($status === 'all') {
+            $total = $size;
+            for ($o = $first, $n = 0; $n < $paging->perPage && gmp_cmp($o, $size) < 0; $o = gmp_add($o, 1), $n++) $data[] = $row($o);
+        } else {
+            // Free = the whole range minus interfaces, pools and reserved
+            // addresses: merge those into sorted intervals and walk the gaps.
+            $taken = $poolRanges ? array_map(fn($p) => [$p[0], $p[1]], $poolRanges) : [];
+            foreach (array_keys($byOffset) as $k) $taken[] = [gmp_init($k), gmp_init($k)];
+            foreach ($reserved as $k) $taken[] = [gmp_init($k), gmp_init($k)];
+            usort($taken, fn($a, $b) => gmp_cmp($a[0], $b[0]));
+            $merged = [];
+            foreach ($taken as [$a, $b]) {
+                $last = count($merged) - 1;
+                if ($last >= 0 && gmp_cmp($a, gmp_add($merged[$last][1], 1)) <= 0) {
+                    if (gmp_cmp($b, $merged[$last][1]) > 0) $merged[$last][1] = $b;
+                } else {
+                    $merged[] = [$a, $b];
+                }
+            }
+            $occupied = gmp_init(0);
+            foreach ($merged as [$a, $b]) $occupied = gmp_add($occupied, gmp_add(gmp_sub($b, $a), 1));
+            $total = gmp_sub($size, $occupied);
+            // Gaps: [0, m0.a-1], [m0.b+1, m1.a-1], ..., [mk.b+1, size-1].
+            $skip = $first;
+            $cursor = gmp_init(0);
+            foreach ([...$merged, [$size, $size]] as [$a, $b]) {
+                if (count($data) >= $paging->perPage) break;
+                $gap = gmp_sub($a, $cursor);
+                if (gmp_cmp($gap, 0) > 0) {
+                    if (gmp_cmp($skip, $gap) >= 0) {
+                        $skip = gmp_sub($skip, $gap);
+                    } else {
+                        for ($o = gmp_add($cursor, $skip); gmp_cmp($o, $a) < 0 && count($data) < $paging->perPage; $o = gmp_add($o, 1)) $data[] = $row($o);
+                        $skip = gmp_init(0);
+                    }
+                }
+                $cursor = gmp_add($b, 1);
+            }
+        }
+        $pages = gmp_div_q(gmp_add($total, $paging->perPage - 1), $paging->perPage);
+        $num = fn(\GMP $g) => gmp_cmp($g, PHP_INT_MAX) <= 0 ? gmp_intval($g) : gmp_strval($g);
+        return [200, [
+            'data' => $data,
+            'meta' => ['page' => $paging->page, 'perPage' => $paging->perPage, 'total' => $num($total), 'totalPages' => $num($pages)],
+        ]];
+    }
+
     /** subnet_add/subnet_modify find a VLAN by number within a campus. */
     private static function vlanOptions(int $vlanId, string $key): array
     {

@@ -1,5 +1,5 @@
 import { Center, Loader } from '@mantine/core';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Route, Routes } from 'react-router-dom';
 import { useSession } from './api/hooks';
 import { AppLayout } from './components/AppLayout';
 import { LoginPage } from './pages/LoginPage';
@@ -24,6 +24,8 @@ import { ReferenceDataPage } from './pages/ReferenceDataPage';
 import { ChangeLogPage } from './pages/ChangeLogPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { IpCalcPage } from './pages/IpCalcPage';
+import { HomePage } from './pages/HomePage';
+import { LocationDetailPage } from './pages/LocationDetailPage';
 
 export function App() {
   const session = useSession();
@@ -40,7 +42,8 @@ export function App() {
   return (
     <AppLayout>
       <Routes>
-        <Route path="/" element={<Navigate to="/subnets" replace />} />
+        <Route path="/" element={<HomePage />} />
+        <Route path="/locations/:id" element={<LocationDetailPage />} />
         <Route path="/subnets" element={<SubnetsPage />} />
         <Route path="/subnets/:id" element={<SubnetDetailPage />} />
         <Route path="/hosts" element={<HostsPage />} />

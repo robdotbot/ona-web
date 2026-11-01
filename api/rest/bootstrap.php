@@ -23,6 +23,7 @@ require __DIR__ . '/src/Account.php';
 require __DIR__ . '/src/Reference.php';
 require __DIR__ . '/src/Tags.php';
 require __DIR__ . '/src/Configs.php';
+require __DIR__ . '/src/Dashboard.php';
 
 use OnaRest\ApiError;
 use OnaRest\Request;

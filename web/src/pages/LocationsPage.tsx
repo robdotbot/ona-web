@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import { Button, Text } from '@mantine/core';
+import { Anchor, Button } from '@mantine/core';
 import { IconPlus } from '@tabler/icons-react';
 import { createColumnHelper } from '@tanstack/react-table';
+import { Link, useNavigate } from 'react-router-dom';
 import { useCan, useCreateLocation, useDeleteLocation, useLocations, useUpdateLocation } from '../api/hooks';
 import type { Location } from '../api/types';
 import { DataTable } from '../components/DataTable';
@@ -47,15 +48,22 @@ function LocationForm({ location }: { location?: Location }) {
   );
 }
 
+export const openLocationForm = (location?: Location) =>
+  openForm(location ? `Edit ${location.reference}` : 'Add location', <LocationForm location={location} />, 'lg');
+
 const col = createColumnHelper<Location>();
 
 export function LocationsPage() {
   const locations = useLocations();
   const del = useDeleteLocation();
   const can = { add: useCan('location_add'), del: useCan('location_del') };
+  const navigate = useNavigate();
   const columns = useMemo(
     () => [
-      col.accessor('reference', { header: 'Reference', cell: (c) => <Text fw={500} size="sm">{c.getValue()}</Text> }),
+      col.accessor('reference', {
+        header: 'Reference',
+        cell: (c) => <Anchor component={Link} to={`/locations/${c.row.original.id}`} fw={500} size="sm" onClick={(e) => e.stopPropagation()}>{c.getValue()}</Anchor>,
+      }),
       col.accessor('name', { header: 'Name' }),
       col.accessor((l) => [l.address, l.city, l.state, l.zipCode].filter(Boolean).join(', '), { id: 'address', header: 'Address' }),
       col.accessor('deviceCount', { header: 'Hosts' }),
@@ -87,7 +95,7 @@ export function LocationsPage() {
         subtitle="Sites where hosts live; set a host's location when editing it"
         actions={can.add && <Button leftSection={<IconPlus size={16} />} onClick={() => openForm('Add location', <LocationForm />, 'lg')}>Add location</Button>}
       />
-      <DataTable columns={columns} data={locations.data} loading={locations.isFetching} error={locations.error} empty="No locations yet." />
+      <DataTable columns={columns} data={locations.data} loading={locations.isFetching} error={locations.error} onRowClick={(l) => navigate(`/locations/${l.id}`)} empty="No locations yet." />
     </>
   );
 }

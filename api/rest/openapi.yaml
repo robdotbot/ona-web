@@ -145,6 +145,25 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /stats:
+    get:
+      tags: [search]
+      summary: Record counts for the home page
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  counts:
+                    type: object
+                    description: subnets, hosts, interfaces, dnsRecords, domains, vlans, vlanCampuses, blocks, locations, dhcpPools, customAttributes, dhcpServers, dnsServers, activeMessages
+                    additionalProperties: { type: integer }
+                  version: { type: [string, 'null'], description: ONA version }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /search:
     get:
       tags: [search]
@@ -306,6 +325,48 @@ paths:
               schema: { $ref: '#/components/schemas/SubnetMap' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /subnets/{id}/addresses:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [subnets]
+      summary: Every address of a subnet in order, with its status (the classic "List by IP")
+      description: |
+        Works for any subnet size, IPv6 included. `meta.total` and
+        `meta.totalPages` are strings when they don't fit a 64-bit integer.
+        `status=free` leaves out used, DHCP pool and (IPv4) network/broadcast
+        addresses.
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - { name: perPage, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 256 } }
+        - { name: status, in: query, schema: { type: string, enum: [all, used, free], default: all } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ip: { type: string }
+                        status: { type: string, enum: [used, free, pool, reserved] }
+                        interfaceId: { type: [integer, 'null'] }
+                        host: { oneOf: [ { $ref: '#/components/schemas/HostRef' }, { type: 'null' } ] }
+                        poolId: { type: [integer, 'null'] }
+                  meta:
+                    type: object
+                    properties:
+                      page: { type: integer }
+                      perPage: { type: integer }
+                      total: { type: [integer, string] }
+                      totalPages: { type: [integer, string] }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /hosts:
     get:
@@ -520,6 +581,35 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /hosts/{id}/actions:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    get:
+      tags: [hosts]
+      summary: Links to outside tools for a host (the classic "Host actions")
+      description: |
+        Configured as in classic ONA: www/workspace_plugins/builtin/host_actions/config.inc.php,
+        overridden by www/local/config/host_actions.config.php. URLs can use %fqdn, %ip, %loc,
+        %hostname, %onahostname, %domain, %onadomain and %ca[attribute] (falling back to the
+        sys_config value default_<attribute>). A link whose placeholders have no value for the
+        host is left out, and javascript:, data:, vbscript: and file: URLs are never returned.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        title: { type: string }
+                        url: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /interfaces/move:
     post:
@@ -3529,6 +3619,22 @@ components:
                     properties:
                       sharedWith: { $ref: '#/components/schemas/InterfaceShares' }
             sharedInterfaces: { type: array, description: Other hosts' interfaces shared with this host, items: { $ref: '#/components/schemas/Interface' } }
+            services:
+              type: object
+              description: What the host serves
+              properties:
+                dnsDomains:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id: { type: integer, description: DNS server assignment ID }
+                      domain: { $ref: '#/components/schemas/Ref' }
+                      role: { type: string, enum: [master, slave, forward] }
+                dhcpSubnets:
+                  type: array
+                  items: { type: object, properties: { id: { type: integer }, name: { type: string }, network: { type: string } } }
+                dhcpFailoverGroupIds: { type: array, items: { type: integer } }
             dnsRecords: { type: array, items: { $ref: '#/components/schemas/DnsRecord' } }
 
     InterfaceShares:
@@ -3935,6 +4041,7 @@ components:
           properties:
             kind: { type: string, enum: [host, subnet] }
             id: { type: integer }
+            name: { type: [string, 'null'], description: The host's FQDN or the subnet's name }
         priority: { type: integer, enum: [0, 1, 2, 3] }
         priorityName: { type: string, enum: [info, high, medium, low] }
         message: { type: string }

@@ -23,6 +23,8 @@ interface Props<T> {
   onPerPageChange?: (perPage: number) => void;
   onRowClick?: (row: T) => void;
   empty?: string;
+  /** Shown instead of meta.total, for totals too big for a JS number (IPv6 address counts). */
+  totalText?: string;
 }
 
 /**
@@ -41,6 +43,7 @@ export function DataTable<T>({
   onPerPageChange,
   onRowClick,
   empty = 'Nothing here yet.',
+  totalText,
 }: Props<T>) {
   const sorting: SortingState = sort ? [{ id: sort.replace(/^-/, ''), desc: sort.startsWith('-') }] : [];
   const table = useReactTable({
@@ -117,7 +120,7 @@ export function DataTable<T>({
       {meta && meta.total > 0 && (onPageChange || onPerPageChange) && (
         <Group justify="space-between" mt="md">
           <Text size="sm" c="dimmed">
-            {(meta.page - 1) * meta.perPage + 1}–{Math.min(meta.page * meta.perPage, meta.total)} of {meta.total}
+            {(meta.page - 1) * meta.perPage + 1}–{Math.min(meta.page * meta.perPage, meta.total)} of {totalText ?? meta.total}
           </Text>
           <Group gap="sm">
             {onPerPageChange && (

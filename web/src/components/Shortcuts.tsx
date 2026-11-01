@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 export const GO_TO: { key: string; path: string; label: string }[] = [
+  { key: 'g', path: '/', label: 'Overview' },
   { key: 's', path: '/subnets', label: 'Subnets' },
   { key: 'h', path: '/hosts', label: 'Hosts' },
   { key: 'd', path: '/dns', label: 'DNS records' },

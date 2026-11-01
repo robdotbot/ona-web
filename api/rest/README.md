@@ -95,6 +95,7 @@ api/
 | `/configs…` (reads too) | `config_add` / `_del` / `_display` / `_diff` | `host_config_admin` |
 | `GET /reports…`, `POST /reports/{name}/run` | `report_run` | (login; modules a report calls check their own) |
 | `GET /change-log` | (reads `ona_logs`) | `advanced` |
+| `GET /stats`, `GET /subnets/{id}/addresses`, `GET /hosts/{id}/actions` | (reads) | (login) |
 | `/manufacturers`, `/models`, `/roles`, `/device-types`, `/subnet-types`, `/dhcp-options`, `/config-types`, `/dns-views` writes | (direct) | `advanced` |
 | `POST /auth/password` | (direct, own account) | (login) |
 | `/custom-attribute-types…` writes | (direct) | `advanced` |
@@ -153,6 +154,10 @@ fixes themselves are also applied to the legacy code; see `../UPSTREAM.md`.
 - **Config archives** take the config text in the body; there is no way to
   pass a file name. The text goes first in the module options, so
   `run_module()`'s log line drops it.
+- **Host action links** (`GET /hosts/{id}/actions`) come from the same
+  config files as the classic UI (fixed paths, admin-written). Links whose
+  placeholders have no value for the host are left out, and
+  `javascript:`/`data:`/`vbscript:`/`file:` URLs are never returned.
 - **Plugins** are found by listing the plugin directories; a plugin name
   from the URL is only used if it matches a listed directory, and
   `plugin_info.php` is parsed as text, never included.

@@ -89,8 +89,12 @@ session lacks the ONA permission, and the API enforces it regardless.
 
 ## Scope
 
+- An **overview** page with record counts and the active messages from
+  every host and subnet (and first steps on an empty install).
 - **Subnets** (list, view, add, edit, delete, IP usage, next free IP, VLAN
-  assignment), **hosts** and their **interfaces**, **DNS records** (all ONA
+  assignment, every address with its status, as CSV too), **hosts** and their
+  **interfaces** (with the DNS and DHCP services a host provides, and links
+  to outside tools from ONA's host actions config), **DNS records** (all ONA
   types), and global search (IP, MAC, names; jumps straight to an exact match).
 - **VLANs** and VLAN campuses, with the subnets in each VLAN.
 - **Blocks**: named address ranges, with the subnets inside them.
@@ -98,7 +102,8 @@ session lacks the ONA permission, and the API enforces it regardless.
   the subnet page too), and options set globally or per subnet, host or server.
 - **Custom attributes**: attribute types (with validation rules) and values
   on hosts, subnets and VLANs.
-- **Locations** and **domains** (add, edit, delete), and the **DNS servers**
+- **Locations** (with a page per location listing its hosts, and a map link)
+  and **domains** (add, edit, delete), and the **DNS servers**
   of each domain (master / slave / forward, with their NS records).
 - **DNS records** can be turned off and on, scheduled to start later, and
   put in a DNS view (split horizon).

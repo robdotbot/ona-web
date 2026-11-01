@@ -3,7 +3,7 @@ import { ActionIcon, Alert, Anchor, Badge, Button, Card, Center, Group, Loader, 
 import { createColumnHelper, type ColumnDef } from '@tanstack/react-table';
 import { IconArrowsExchange, IconDots, IconLink, IconLinkOff, IconPencil, IconPlus, IconTrash, IconWorldShare } from '@tabler/icons-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useCan, useDeleteDnsRecord, useDeleteHost, useDeleteInterface, useDeleteNat, useDhcpServers, useHost, useUnshareInterface } from '../api/hooks';
+import { useCan, useDeleteDnsRecord, useDeleteHost, useDeleteInterface, useDeleteNat, useHost, useUnshareInterface } from '../api/hooks';
 import { errorMessage } from '../api/client';
 import type { DnsRecord, HostDetail } from '../api/types';
 import { DataTable } from '../components/DataTable';
@@ -17,6 +17,7 @@ import { CustomAttributesPanel, DhcpOptionsPanel, SectionHeader } from '../compo
 import { openMoveToHost, openNat, openShare } from '../components/InterfaceActions';
 import { MessagesPanel, TagsBar } from '../components/TagsMessages';
 import { ConfigsPanel } from '../components/ConfigsPanel';
+import { HostActionLinks, HostServices } from '../components/HostExtras';
 import { NotFoundPage } from './NotFoundPage';
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -31,7 +32,6 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 export function HostDetailPage() {
   const id = Number(useParams().id);
   const host = useHost(id);
-  const dhcpServers = useDhcpServers();
   const navigate = useNavigate();
   const delHost = useDeleteHost();
   const delIface = useDeleteInterface();
@@ -202,11 +202,15 @@ export function HostDetailPage() {
           <Fact label="Location">{h.location ? `${h.location.reference} – ${h.location.name}` : ''}</Fact>
         </SimpleGrid>
         {h.notes && <Stack mt="md" gap={0}><Fact label="Notes">{h.notes}</Fact></Stack>}
-        <Stack mt="md" gap={4}>
-          <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Tags</Text>
-          <TagsBar target={{ hostId: h.id }} />
-        </Stack>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md">
+          <Stack gap={4}>
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Tags</Text>
+            <TagsBar target={{ hostId: h.id }} />
+          </Stack>
+          <HostActionLinks hostId={h.id} />
+        </SimpleGrid>
       </Card>
+      <HostServices host={h} />
       <MessagesPanel target={{ hostId: h.id }} />
 
       <Group justify="space-between" mt="md">
@@ -237,11 +241,6 @@ export function HostDetailPage() {
       <DhcpOptionsPanel scope={{ hostId: h.id }} />
       <CustomAttributesPanel target={{ hostId: h.id }} />
       <ConfigsPanel hostId={h.id} />
-      {dhcpServers.data?.some((d) => d.id === h.id) && (
-        <Text size="xs" c="dimmed">
-          This host is a DHCP server: see <Anchor component={Link} to={`/dhcp/servers/${h.id}`} size="xs">the subnets it serves</Anchor>.
-        </Text>
-      )}
     </Stack>
   );
 }
