@@ -142,6 +142,12 @@ settings and upgrades. The sources are in `release/`.
 
 - Build locally: `cd web && npm ci && cd .. && scripts/build-release.sh v0.2.0`
   (writes `dist-release/`).
+- Release notes: first commit `release/notes/v0.2.0.md` with what changed
+  (no Downloads section; `scripts/release-notes.sh` adds it). The release
+  description is that file followed by the download instructions; without
+  it the release only lists the downloads. To change the notes of a
+  published release, edit the file on `main` and run the **Release notes**
+  workflow with the version.
 - Publish: push a tag such as `v0.2.0`, or run the **Release** workflow by
   hand. It runs the web tests, builds all three bundles, starts the Linux one
   with Docker through its own `start.sh`, runs the REST API test suite inside

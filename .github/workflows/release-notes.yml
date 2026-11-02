@@ -1,0 +1,42 @@
+# Rewrites the description of an existing release from
+# release/notes/<version>.md on the selected branch (plus the downloads),
+# e.g. to add or correct notes after the release was published.
+name: Release notes
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release to update, e.g. v0.5.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the version
+        run: |
+          if ! [[ $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::version must look like v1.2.3 or v1.2.3-rc.1 (got '$VERSION')"
+            exit 1
+          fi
+          if [[ ! -f release/notes/$VERSION.md ]]; then
+            echo "::error::release/notes/$VERSION.md doesn't exist on this branch"
+            exit 1
+          fi
+
+      - name: Update the release description
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scripts/release-notes.sh "$VERSION" > notes.md
+          cat notes.md
+          gh release edit "$VERSION" --notes-file notes.md
