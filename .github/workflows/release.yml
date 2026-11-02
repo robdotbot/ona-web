@@ -18,6 +18,7 @@ on:
     paths:
       - 'release/**'
       - 'scripts/build-release.sh'
+      - 'scripts/release-notes.sh'
       - '.github/workflows/release.yml'
       - 'api/docker/**'
 
@@ -44,6 +45,13 @@ jobs:
             echo "::error::version must look like v1.2.3 or v1.2.3-rc.1 (got '$VERSION')"
             exit 1
           fi
+
+      # The release description: release/notes/<version>.md, written by hand
+      # and committed before releasing, then the downloads (see the script).
+      - name: Write the release notes
+        run: |
+          scripts/release-notes.sh "$VERSION" > notes.md
+          cat notes.md
 
       - uses: actions/setup-node@v4
         with:
@@ -108,17 +116,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cat > notes.md <<EOF
-          ## Downloads
-
-          - **Windows:** \`ona-web-$VERSION-windows.zip\`. Unzip, then double-click \`start.bat\`.
-          - **macOS:** \`ona-web-$VERSION-macos.zip\`. Unzip, then double-click \`start.command\` (the first time, right-click it and choose Open).
-          - **Linux** (any distribution): \`ona-web-$VERSION-linux.tar.gz\`. Extract with \`tar -xzf\`, then run \`./start.sh\` (or \`sudo ./start.sh\` if you're not in the \`docker\` group).
-
-          Windows and macOS need [Docker Desktop](https://www.docker.com/products/docker-desktop/) running; Linux needs [Docker Engine](https://docs.docker.com/engine/install/) with the Compose plugin (or Docker Desktop for Linux). ona-web opens at http://localhost:8000 (log in as \`admin\` / \`admin\` and change the password under Admin); the classic ONA UI is at http://localhost:8080. Both ports are only reachable from your computer. See \`README.txt\` in the download for settings, upgrading and troubleshooting.
-
-          Checksums are in \`SHA256SUMS\`.
-          EOF
           args=(--title "ona-web $VERSION" --notes-file notes.md --target "$GITHUB_SHA")
           if [[ $VERSION == *-* ]]; then args+=(--prerelease); fi
           gh release create "$VERSION" dist-release/*.zip dist-release/*.tar.gz dist-release/SHA256SUMS "${args[@]}"
