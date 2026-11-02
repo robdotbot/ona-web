@@ -7,7 +7,8 @@ import { useCan, useDeleteDnsRecord, useDnsRecords, useDnsViews, useDomains } fr
 import { DNS_TYPES, type DnsRecord } from '../api/types';
 import { DataTable } from '../components/DataTable';
 import { PageHeader } from '../components/PageHeader';
-import { dnsColumns, rowActions } from '../components/columns';
+import { dnsColumns, dnsValue, rowActions } from '../components/columns';
+import { ExportButton } from '../components/ExportButton';
 import { openDnsRecordForm } from '../components/DnsRecordForm';
 import { confirmDelete, notifySuccess } from '../components/feedback';
 import { useListParams } from '../lib/useListParams';
@@ -92,6 +93,13 @@ export function DnsRecordsPage() {
             aria-label="Filter by DNS view"
           />
         )}
+        <ExportButton<DnsRecord>
+          path="/dns-records"
+          params={params}
+          filename="dns-records"
+          header={['type', 'name', 'value', 'ttl', 'enabled', 'active_from', 'view', 'notes']}
+          row={(r) => [r.type, r.fqdn, dnsValue(r), r.ttl, r.enabled ? 'yes' : 'no', r.activeFrom, r.view.name, r.notes]}
+        />
         {params.hostId && <Button variant="subtle" size="xs" onClick={() => update({ hostId: undefined })}>Clear host filter</Button>}
       </Group>
       <DataTable

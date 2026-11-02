@@ -77,6 +77,17 @@ class Configs
         return [204, null];
     }
 
+    /** DELETE /hosts/{id}/configs: delete every archived config of a host (config_del_all). */
+    public static function deleteAll(int $hostId): array
+    {
+        Auth::requirePerm('host_config_admin');
+        Hosts::load($hostId);
+        $n = Ona::count('SELECT id FROM configurations WHERE host_id = ?', [$hostId]);
+        // config_del_all fails when there is nothing to delete; that's not an error here.
+        if ($n) Ona::run('config_del_all', ['host' => $hostId, 'commit' => 'Y'], ['host_config_admin']);
+        return [200, ['deleted' => $n]];
+    }
+
     /** GET /configs/diff?from=&to=: unified diff from the older to the newer of two configs (config_diff). */
     public static function diff(Request $req): array
     {

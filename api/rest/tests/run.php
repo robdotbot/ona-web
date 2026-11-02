@@ -292,7 +292,7 @@ const PROTECTED_ROUTES = [
     ['GET', '/subnets/{id}/next-ip'], ['GET', '/subnets/{id}/map'], ['GET', '/subnets/{id}/addresses'],
     ['GET', '/hosts'], ['POST', '/hosts'],
     ['GET', '/hosts/{id}'], ['PATCH', '/hosts/{id}'], ['DELETE', '/hosts/{id}'],
-    ['GET', '/hosts/{id}/actions'],
+    ['GET', '/hosts/{id}/actions'], ['DELETE', '/hosts/{id}/configs'],
     ['GET', '/interfaces'], ['POST', '/interfaces'],
     ['GET', '/interfaces/{id}'], ['PATCH', '/interfaces/{id}'], ['DELETE', '/interfaces/{id}'],
     ['POST', '/interfaces/move'], ['POST', '/interfaces/{id}/move'],
@@ -1323,6 +1323,7 @@ test('guest: reference data, DNS servers, interfaces, tags, messages, configs, l
         ['DELETE', '/messages/1', null, 'advanced'],
         ['GET', '/configs', null, 'host_config_admin'],
         ['POST', '/configs', ['hostId' => $h['id'], 'typeId' => 1, 'text' => 'x'], 'host_config_admin'],
+        ['DELETE', "/hosts/{$h['id']}/configs", null, 'host_config_admin'],
         ['GET', '/configs/diff?from=1&to=2', null, 'host_config_admin'],
         ['GET', '/change-log', null, 'advanced'],
     ];
@@ -1663,6 +1664,10 @@ test('configs: add, list, view exact text, diff, delete', function () {
     expectStatus($a->post('/configs', ['hostId' => $h['id'], 'typeId' => 1, 'text' => '']), 422, 'validation_failed', 'empty text');
     expectStatus($a->delete("/configs/{$c1['id']}"), 204, null, 'delete');
     eq(1, $a->get("/configs?hostId={$h['id']}")->json['meta']['total'], 'one left');
+    $a->ok('POST', '/configs', ['hostId' => $h['id'], 'typeId' => 2, 'text' => "version 1\n"], 201);
+    eq(['deleted' => 2], $a->ok('DELETE', "/hosts/{$h['id']}/configs", null, 200), 'delete all');
+    eq(0, $a->get("/configs?hostId={$h['id']}")->json['meta']['total'], 'none left');
+    eq(['deleted' => 0], $a->ok('DELETE', "/hosts/{$h['id']}/configs", null, 200), 'delete all again');
 });
 
 test('reports: list, usage, run as text, refuse HTML, unknown names and reserved params', function () {

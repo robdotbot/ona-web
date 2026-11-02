@@ -48,6 +48,7 @@ $r->add('GET', '/hosts/{id}', fn(Request $req, array $p) => Hosts::get($p['id'])
 $r->add('PATCH', '/hosts/{id}', fn(Request $req, array $p) => Hosts::update($req, $p['id']));
 $r->add('DELETE', '/hosts/{id}', fn(Request $req, array $p) => Hosts::delete($p['id']));
 $r->add('GET', '/hosts/{id}/actions', fn(Request $req, array $p) => HostActions::list($p['id']));
+$r->add('DELETE', '/hosts/{id}/configs', fn(Request $req, array $p) => Configs::deleteAll($p['id']));
 
 // --- Interfaces ------------------------------------------------------------
 $r->add('GET', '/interfaces', fn(Request $req) => Interfaces::list($req));

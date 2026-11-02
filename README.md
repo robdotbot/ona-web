@@ -112,7 +112,7 @@ session lacks the ONA permission, and the API enforces it regardless.
   range of addresses to another subnet (with a preview).
 - **Tags** on hosts and subnets (and a tag filter on the lists),
   **messages** on host and subnet pages, and the **config archive** on the
-  host page (view, compare two versions, add, delete).
+  host page (view, compare two versions, add, delete one or all).
 - **Reports** from plugins, run as text or CSV, and the ONA **change log**
   (filled while the `log_to_db` setting is 1).
 - **Tools**: IPv4/IPv6 calculator, an address map on IPv4 subnet pages (up
@@ -121,6 +121,9 @@ session lacks the ONA permission, and the API enforces it regardless.
   attribute, tag, VLAN), and keyboard shortcuts (`?` lists them).
 - **Reference data**: manufacturers, models, roles, device types, subnet
   types, DHCP option definitions, config types and DNS views.
+- **CSV export** of the host, subnet and DNS record lists (the rows matching
+  the current filters, up to 10,000), and a **My account** page with your
+  groups and permissions.
 - **Admin**: users, groups and their permissions (`user_admin`), system
   configuration and plugins (`advanced`). Plugin install steps still run in
   the classic UI.

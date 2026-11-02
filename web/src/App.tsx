@@ -26,6 +26,7 @@ import { ReportsPage } from './pages/ReportsPage';
 import { IpCalcPage } from './pages/IpCalcPage';
 import { HomePage } from './pages/HomePage';
 import { LocationDetailPage } from './pages/LocationDetailPage';
+import { AccountPage } from './pages/AccountPage';
 
 export function App() {
   const session = useSession();
@@ -60,6 +61,7 @@ export function App() {
         <Route path="/locations" element={<LocationsPage />} />
         <Route path="/domains" element={<DomainsPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/account" element={<AccountPage />} />
         <Route path="/reference" element={<ReferenceDataPage />} />
         <Route path="/change-log" element={<ChangeLogPage />} />
         <Route path="/reports" element={<ReportsPage />} />
