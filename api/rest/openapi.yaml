@@ -611,6 +611,24 @@ paths:
                         url: { type: string }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /hosts/{id}/configs:
+    parameters: [ { $ref: '#/components/parameters/id' } ]
+    delete:
+      tags: [configs]
+      summary: Delete every archived config of a host (module config_del_all, permission host_config_admin)
+      parameters: [ { $ref: '#/components/parameters/csrf' } ]
+      responses:
+        '200':
+          description: Deleted (0 when the host had none)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: integer }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /interfaces/move:
     post:
       tags: [interfaces]

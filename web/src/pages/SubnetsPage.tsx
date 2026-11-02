@@ -13,6 +13,7 @@ import { useListParams } from '../lib/useListParams';
 import { useFilterInput } from '../lib/useFilterInput';
 import { SUBNET_FILTERS, useSubnetFilters } from '../components/ListFilters';
 import { TagBadges } from '../components/columns';
+import { ExportButton } from '../components/ExportButton';
 
 const col = createColumnHelper<Subnet>();
 
@@ -70,6 +71,13 @@ export function SubnetsPage() {
           aria-label="Filter by type"
         />
         {filters.button}
+        <ExportButton<Subnet>
+          path="/subnets"
+          params={params}
+          filename="subnets"
+          header={['name', 'network', 'netmask', 'type', 'used', 'total', 'percent_used', 'tags']}
+          row={(s) => [s.name, s.network, s.netmask, s.type?.name, s.usage.used, s.usage.total, s.usage.percent, s.tags.join(' ')]}
+        />
       </Group>
       {filters.panel}
       <DataTable

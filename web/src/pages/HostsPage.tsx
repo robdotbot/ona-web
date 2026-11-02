@@ -9,6 +9,8 @@ import { openHostForm } from '../components/HostForm';
 import { useListParams } from '../lib/useListParams';
 import { useFilterInput } from '../lib/useFilterInput';
 import { HOST_FILTERS, useHostFilters } from '../components/ListFilters';
+import { ExportButton } from '../components/ExportButton';
+import type { Host } from '../api/types';
 
 export function HostsPage() {
   const { params, update } = useListParams({ sort: 'name' }, HOST_FILTERS);
@@ -37,6 +39,13 @@ export function HostsPage() {
           data-shortcut="list-filter"
         />
         {filters.button}
+        <ExportButton<Host>
+          path="/hosts"
+          params={params}
+          filename="hosts"
+          header={['fqdn', 'primary_ip', 'domain', 'device_type', 'location', 'interfaces', 'tags', 'notes']}
+          row={(h) => [h.fqdn, h.primaryIp, h.domain.name, h.deviceType?.name, h.location?.reference, h.interfaceCount, h.tags.join(' '), h.notes]}
+        />
       </Group>
       {filters.panel}
       <DataTable

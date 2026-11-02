@@ -92,7 +92,7 @@ api/
 | `DELETE /tags/{id}` | `tag_del` | `host_del` / `subnet_del` |
 | `POST /messages` | `message_add` | `advanced` |
 | `PATCH/DELETE /messages/{id}` | (direct) | `advanced` |
-| `/configs…` (reads too) | `config_add` / `_del` / `_display` / `_diff` | `host_config_admin` |
+| `/configs…` (reads too), `DELETE /hosts/{id}/configs` | `config_add` / `_del` / `_display` / `_diff`, `config_del_all` | `host_config_admin` |
 | `GET /reports…`, `POST /reports/{name}/run` | `report_run` | (login; modules a report calls check their own) |
 | `GET /change-log` | (reads `ona_logs`) | `advanced` |
 | `GET /stats`, `GET /subnets/{id}/addresses`, `GET /hosts/{id}/actions` | (reads) | (login) |

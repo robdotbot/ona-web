@@ -12,6 +12,7 @@ import { DataTable } from './DataTable';
 import { openHostForm } from './HostForm';
 import { notifyError } from './feedback';
 import { SectionHeader } from './panels';
+import { saveFile, toCsv } from '../lib/csv';
 
 const STATUS: Record<AddressStatus, { label: string; color: string }> = {
   used: { label: 'in use', color: 'blue' },
@@ -21,8 +22,6 @@ const STATUS: Record<AddressStatus, { label: string; color: string }> = {
 };
 const CSV_LIMIT = 65536;
 
-const csvCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-
 async function downloadCsv(subnet: SubnetDetail, status: string) {
   const rows: SubnetAddress[] = [];
   for (let page = 1; ; page++) {
@@ -30,12 +29,7 @@ async function downloadCsv(subnet: SubnetDetail, status: string) {
     rows.push(...r.data);
     if (page >= Number(r.meta.totalPages)) break;
   }
-  const csv = ['ip,status,host', ...rows.map((r) => [r.ip, r.status, r.host?.fqdn ?? ''].map(csvCell).join(','))].join('\n') + '\n';
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-  a.download = `${subnet.name}-${status}.csv`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  saveFile(`${subnet.name}-${status}.csv`, toCsv(['ip', 'status', 'host'], rows.map((r) => [r.ip, r.status, r.host?.fqdn])));
 }
 
 const col = createColumnHelper<SubnetAddress>();

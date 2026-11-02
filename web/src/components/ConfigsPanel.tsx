@@ -5,7 +5,7 @@ import { IconEye, IconGitCompare, IconTrash } from '@tabler/icons-react';
 import { createColumnHelper } from '@tanstack/react-table';
 import { useState } from 'react';
 import { errorMessage } from '../api/client';
-import { useAddConfig, useCan, useConfig, useConfigDiff, useConfigTypes, useConfigs, useDeleteConfig } from '../api/hooks';
+import { useAddConfig, useCan, useConfig, useConfigDiff, useConfigTypes, useConfigs, useDeleteAllConfigs, useDeleteConfig } from '../api/hooks';
 import type { Config } from '../api/types';
 import { DataTable } from './DataTable';
 import { EntityForm, openForm, options } from './EntityForm';
@@ -85,6 +85,7 @@ export function ConfigsPanel({ hostId }: { hostId: number }) {
   const canUse = useCan('host_config_admin');
   const configs = useConfigs({ hostId, perPage: 100 }, canUse);
   const del = useDeleteConfig();
+  const delAll = useDeleteAllConfigs();
   const [selected, setSelected] = useState<number[]>([]);
   if (!canUse) return null;
 
@@ -143,6 +144,25 @@ export function ConfigsPanel({ hostId }: { hostId: number }) {
             >
               Compare selected
             </Button>
+            {(configs.data?.meta.total ?? 0) > 1 && (
+              <Button
+                size="xs"
+                variant="light"
+                color="red"
+                leftSection={<IconTrash size={14} />}
+                onClick={() => confirmDelete({
+                  title: `Delete all ${configs.data!.meta.total} archived configs?`,
+                  message: 'Every archived config of this host, of every type, is deleted. This cannot be undone.',
+                  onConfirm: async () => {
+                    const r = await delAll.mutateAsync(hostId);
+                    setSelected([]);
+                    notifySuccess(`${r.deleted} config(s) deleted`);
+                  },
+                })}
+              >
+                Delete all
+              </Button>
+            )}
             <AddButton onClick={() => openForm('Archive a config', <AddConfigForm hostId={hostId} />, 'lg')}>Add config</AddButton>
           </Group>
         }

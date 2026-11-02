@@ -90,6 +90,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
               </Menu.Target>
               <Menu.Dropdown>
                 <Menu.Label>Signed in as {session?.user.username}</Menu.Label>
+                <Menu.Item leftSection={<IconUser size={14} />} component={Link} to="/account">
+                  My account
+                </Menu.Item>
                 <Menu.Item leftSection={<IconKey size={14} />} onClick={openChangePassword}>
                   Change password
                 </Menu.Item>

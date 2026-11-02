@@ -444,6 +444,8 @@ export const useConfigDiff = (from?: number, to?: number) =>
   });
 export const useAddConfig = () => useWrite((b: { hostId: number; typeId: number; text: string }) => api<ConfigDetail>('POST', '/configs', { body: b }));
 export const useDeleteConfig = () => useWrite((id: number) => api<void>('DELETE', `/configs/${id}`));
+export const useDeleteAllConfigs = () =>
+  useWrite((hostId: number) => api<{ deleted: number }>('DELETE', `/hosts/${hostId}/configs`));
 
 export const useReports = () => useQuery({ queryKey: ['reports', 'all'], queryFn: all<Report>('/reports'), staleTime: 60_000 });
 export const useReportUsage = (name?: string) =>
